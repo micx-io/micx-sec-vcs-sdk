@@ -8,14 +8,20 @@ final class MixVcs
     public function call(string $method, array $params = [], ?string $requestId = null): array
     {
         $id = $requestId ?? bin2hex(random_bytes(16));
+        if (!preg_match('/^[A-Za-z0-9_-]{8,128}$/D', $id)) throw new \InvalidArgumentException('Request ID must contain 8–128 letters, digits, underscores or hyphens');
         $request = ['version' => 1, 'id' => $id, 'method' => $method, 'params' => $params];
         $reply = $this->transport->request($request, $this->timeout);
         if (($reply['version'] ?? null) !== 1 || ($reply['id'] ?? null) !== $id || !is_bool($reply['ok'] ?? null)) {
             throw new RpcException('INVALID_RESPONSE', 'Invalid RPC envelope');
         }
         if (!$reply['ok']) {
-            $e = $reply['error'] ?? [];
-            throw new RpcException($e['code'] ?? 'REMOTE_ERROR', $e['message'] ?? 'Remote operation failed', $e['details'] ?? []);
+            $e = $reply['error'] ?? null;
+            if (!is_array($e) || !is_string($e['code'] ?? null) || $e['code']===''
+                || !is_string($e['message'] ?? null) || $e['message']===''
+                || (array_key_exists('details',$e) && !is_array($e['details']))) {
+                throw new RpcException('INVALID_RESPONSE', 'Malformed RPC error; operation outcome is unknown', ['requestId'=>$id]);
+            }
+            throw new RpcException($e['code'], $e['message'], $e['details'] ?? []);
         }
         if (!is_array($reply['result'] ?? null)) throw new RpcException('INVALID_RESPONSE', 'Missing result');
         return $reply['result'];

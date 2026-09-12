@@ -45,7 +45,7 @@ $result = $vcs->call('commit', $params, $id);
 // Nach Transport-Timeout nur call('commit', $params, $id) wiederholen.
 ```
 
-Der Client erstellt keine automatische neue ID für einen Retry. Ein synchroner Aufruf blockiert standardmäßig maximal 60 Sekunden (bis 300 konfigurierbar); eine laufende Remote-Operation wird durch Timeout nicht abgebrochen. Der Transport öffnet einen eigenen Kanal pro Aufruf, lässt aber die übergebene Verbindung offen.
+Der Client erstellt keine automatische neue ID für einen Retry. Die Wartefrist auf eine RPC-Antwort beträgt standardmäßig 60 Sekunden (bis 300 konfigurierbar); Verbindungs- und Kanalaufbau unterliegen zusätzlich den Timeouts der übergebenen AMQP-Verbindung; eine laufende Remote-Operation wird durch Timeout nicht abgebrochen. Der Transport öffnet einen eigenen Kanal pro Aufruf, lässt aber die übergebene Verbindung offen.
 
 ## Tests
 
@@ -55,3 +55,24 @@ composer test
 ```
 
 PHP 8.3+. Unit-Tests verwenden einen Fake-Transport. Das vollständige Protokoll und die Sicherheitsgrenzen stehen im Service-Repository unter `docs/2026-09-12-secure-vcs-rpc.md`.
+
+## Fehler abfangen und Antworten zuordnen
+
+```php
+try {
+    $result = $vcs->call('commit', $params, $id);
+} catch (\Micx\Vcs\RpcException $e) {
+    // Maschinenlesbar: $e->errorCode; verständliche Ursache: $e->getMessage().
+    // Bei PUSH_FAILED enthält $e->details['cause'] den ursprünglichen Git-Fehler.
+    // TIMEOUT / OUTCOME_UNKNOWN: Verbindung erneuern und ausschließlich gleiche ID + Parameter nutzen.
+    throw $e;
+}
+```
+
+SSH-Fehler (`SSH_KEY_INVALID`, `SSH_AUTH_FAILED`, `SSH_HOST_KEY_FAILED`), `REPOSITORY_UNAVAILABLE`, `REMOTE_UNREACHABLE`, `BRANCH_NOT_FOUND`, `PUSH_REJECTED` und `IO_ERROR` kommen als `RpcException` mit unterscheidbarem `errorCode` an. Repository fehlt und fehlende Berechtigung sind remote nicht immer unterscheidbar. Vollständiger [Fehlerkatalog und Worker-Verhalten](https://github.com/micx-io/micx-sec-vcs/blob/feat/secure-vcs-rpc/README.md#fehler-parallelität-und-broker-ausfall).
+
+Der Transport erstellt pro Aufruf eine zufällige exklusive Reply-Queue und übernimmt die Request-ID als AMQP-`correlation_id`. Er ignoriert Nachrichten ohne passende Korrelation; `MixVcs` prüft zusätzlich Version, ID und Antwortstruktur im JSON. Defektes JSON und fehlerhafte Fehlerobjekte ergeben `INVALID_RESPONSE`. Die Reihenfolge der Antworten spielt keine Rolle: Der Broker-Test lässt zwei unabhängige Clients gleichzeitig anfragen und beantwortet absichtlich den zuletzt eingegangenen Request zuerst.
+
+Für parallele PHP-Prozesse jeweils eine eigene AMQP-Verbindung nach dem Prozessstart erstellen. Geteilte Verbindungen über Threads/Fibers sind nicht als nebenläufige API unterstützt. N Service-Worker bearbeiten höchstens N Requests gleichzeitig; derselbe Workspace bleibt gesperrt, nach fünf Sekunden Wartezeit kann `BUSY` folgen. Keine globale FIFO-Zusage. Revision und Generation verhindern, dass ein wartender Schreiber einen inzwischen geänderten RPC-Zustand überschreibt.
+
+Bei Broker-Ausfall verbindet sich das SDK nicht automatisch neu. Vor Publish schlägt ein Kanalfehler mit `UNAVAILABLE` fehl, ab Publish-Beginn ist der Ausgang `OUTCOME_UNKNOWN`, bei Ablauf der Wartefrist `TIMEOUT`. Verbindung in der Anwendung erneuern; Schreibaufrufe nach unklarem Ausgang nur mit zuvor gespeicherter ID und exakt gleichen Parametern wiederholen. Die Erstellung der AMQP-Verbindung liegt außerhalb des SDK und kann selbst eine AMQP-Exception werfen. Der Service-Supervisor bleibt bei Brokerfehlern aktiv und startet den einzelnen Worker nach 1, 2, 4, 8, 16 und maximal 30 Sekunden Pause neu; das Journal sichert bereits gespeicherte Ergebnisse. Kein Exactly-once-Versprechen bei Verlust von Broker-/Journal-Daten.
