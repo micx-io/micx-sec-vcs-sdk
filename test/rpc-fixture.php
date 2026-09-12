@@ -5,7 +5,7 @@ use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Message\AMQPMessage;
 $c=new AMQPStreamConnection('127.0.0.1',5672,'guest','guest'); $ch=$c->channel();
 $ch->exchange_declare('micx.vcs.v1','topic',false,true,false);
-$ch->queue_declare('micx.vcs.v1.fixture',false,false,false,true);
+$ch->queue_declare('micx.vcs.v1.fixture',false,false,true,true);
 $ch->queue_bind('micx.vcs.v1.fixture','micx.vcs.v1','rpc.request');
 $ch->basic_consume('micx.vcs.v1.fixture','',false,false,false,false,function(AMQPMessage $m) use ($ch) {
     $r=json_decode($m->getBody(),true,64,JSON_THROW_ON_ERROR);
