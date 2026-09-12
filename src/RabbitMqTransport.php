@@ -1,0 +1,53 @@
+<?php
+declare(strict_types=1);
+namespace Micx\Vcs;
+use PhpAmqpLib\Connection\AbstractConnection;
+use PhpAmqpLib\Message\AMQPMessage;
+use PhpAmqpLib\Wire\AMQPTable;
+final class RabbitMqTransport implements RpcTransport
+{
+    public const EXCHANGE = 'micx.vcs.v1';
+    public const QUEUE = 'micx.vcs.v1.requests';
+    public const ROUTING_KEY = 'rpc.request';
+    public const MAX_BYTES = 4194304;
+    public function __construct(private AbstractConnection $connection) {}
+    public function request(array $request, float $timeout): array
+    {
+        if ($timeout <= 0 || $timeout > 300) throw new \InvalidArgumentException('Timeout must be in (0,300]');
+        $body = json_encode($request, JSON_THROW_ON_ERROR);
+        if (strlen($body) > self::MAX_BYTES) throw new RpcException('TOO_LARGE', 'Request exceeds 4 MiB');
+        $channel = $this->connection->channel();
+        $reply = null;
+        $returned = false;
+        $nacked = false;
+        $deadline = microtime(true) + $timeout;
+        try {
+            $channel->exchange_declare(self::EXCHANGE, 'topic', false, true, false);
+            [$queue] = $channel->queue_declare('micx.vcs.reply.' . bin2hex(random_bytes(16)), false, false, true, true,
+                false, new AMQPTable(['x-message-ttl' => 300000, 'x-max-length-bytes' => self::MAX_BYTES]));
+            $channel->set_return_listener(function () use (&$returned) { $returned = true; });
+            $channel->set_nack_handler(function () use (&$nacked) { $nacked = true; });
+            $channel->confirm_select();
+            $channel->basic_consume($queue, '', false, true, false, false, function (AMQPMessage $message) use (&$reply, $request) {
+                if ($message->get('correlation_id') !== $request['id']) return;
+                if (strlen($message->getBody()) > self::MAX_BYTES) throw new RpcException('TOO_LARGE', 'Response exceeds 4 MiB');
+                $reply = json_decode($message->getBody(), true, 64, JSON_THROW_ON_ERROR);
+            });
+            $channel->basic_publish(new AMQPMessage($body, ['content_type' => 'application/json', 'delivery_mode' => 2,
+                'correlation_id' => $request['id'], 'reply_to' => $queue, 'expiration' => (string)(int)($timeout * 1000)]),
+                self::EXCHANGE, self::ROUTING_KEY, true);
+            $channel->wait_for_pending_acks_returns(max(0.01, $deadline - microtime(true)));
+            if ($returned || $nacked) throw new RpcException('UNAVAILABLE', 'Request was not routed or confirmed');
+            while ($reply === null) {
+                $remaining = $deadline - microtime(true);
+                if ($remaining <= 0) throw new RpcException('TIMEOUT', 'Outcome unknown; retry the same request ID and payload');
+                $channel->wait(null, false, $remaining);
+            }
+            return $reply;
+        } catch (\PhpAmqpLib\Exception\AMQPTimeoutException $e) {
+            throw new RpcException('TIMEOUT', 'Outcome unknown; retry the same request ID and payload');
+        } finally {
+            try { $channel->close(); } catch (\Throwable) {}
+        }
+    }
+}
