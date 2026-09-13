@@ -55,3 +55,7 @@ Desktop.ini
 $RECYCLE.BIN/
 .Trashes/
 
+
+# MICX runtime and credentials
+/secrets/
+/.phpunit.cache/
