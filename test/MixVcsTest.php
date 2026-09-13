@@ -4,20 +4,59 @@ use Micx\Vcs\{MixVcs, RpcTransport, RpcException};
 use PHPUnit\Framework\TestCase;
 final class MixVcsTest extends TestCase
 {
-    public function testCommitPreservesRetryIdentityAndArguments(): void
+    public function testWorkspaceWorkflowNeedsNoRevisionOrRequestId(): void
     {
         $transport = new class implements RpcTransport {
             public array $requests = [];
             public function request(array $request, float $timeout): array {
                 $this->requests[] = $request;
-                return ['version'=>1, 'id'=>$request['id'], 'ok'=>true, 'result'=>['revision'=>'abc']];
+                return ['version'=>1, 'id'=>$request['id'], 'ok'=>true,
+                    'result'=>['workspace'=>'workspace', 'path'=>'/data/project', 'revision'=>'abc']];
             }
         };
         $vcs = new MixVcs($transport);
-        $vcs->commit('workspace', 'message', 'before', 0, true, 'stable-id');
-        $vcs->commit('workspace', 'message', 'before', 0, true, 'stable-id');
+        $repo = $vcs->create('git@example.test:project.git', directory: 'project');
+        $workspace = $repo['workspace'];
+        self::assertSame('/data/project', $vcs->path($workspace));
+        $vcs->update($workspace, [['path'=>'hello.txt', 'content'=>base64_encode('Hello')]]);
+        $vcs->commit($workspace);
+        $vcs->push($workspace);
+        $vcs->pull($workspace);
+        self::assertSame(['workspace'=>'workspace', 'message'=>'Update workspace', 'push'=>false], $transport->requests[3]['params']);
+        self::assertSame(['workspace'=>'workspace', 'branch'=>null], $transport->requests[4]['params']);
+        foreach ($transport->requests as $request) {
+            self::assertArrayNotHasKey('expectedRevision', $request['params']);
+            self::assertArrayNotHasKey('expectedGeneration', $request['params']);
+        }
+    }
+    public function testTimeoutPreservesExactRequestForDeliberateRetry(): void
+    {
+        $transport = new class implements RpcTransport {
+            public array $requests = [];
+            public function request(array $request, float $timeout): array {
+                TestCase::assertSame(0.25, $timeout);
+                $this->requests[] = $request;
+                if (count($this->requests) === 1) throw new RpcException('TIMEOUT', 'No reply');
+                return ['version'=>1, 'id'=>$request['id'], 'ok'=>true, 'result'=>['revision'=>'abc']];
+            }
+        };
+        $vcs = new MixVcs($transport, timeout: 0.25);
+        try { $vcs->commit('workspace'); self::fail('Timeout was not raised'); }
+        catch (\Micx\Vcs\OperationTimeoutException $e) {
+            self::assertSame('TIMEOUT', $e->errorCode);
+            $request = $e->request;
+            $vcs->call($request['method'], $request['params'], $request['id']);
+        }
         self::assertSame($transport->requests[0], $transport->requests[1]);
-        self::assertSame('before', $transport->requests[0]['params']['expectedRevision']);
+    }
+    public function testRejectsInvalidTimeoutBeforeTransportUse(): void
+    {
+        $transport = $this->createMock(RpcTransport::class);
+        $transport->expects(self::never())->method('request');
+        foreach ([0.0, -1.0, INF, NAN, 301.0] as $timeout) {
+            try { new MixVcs($transport, $timeout); self::fail('Invalid timeout accepted'); }
+            catch (\InvalidArgumentException) { self::assertTrue(true); }
+        }
     }
     public function testRejectsMismatchedReply(): void
     {

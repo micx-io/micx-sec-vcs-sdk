@@ -48,12 +48,12 @@ final class RabbitMqTransport implements RpcTransport
             if ($returned || $nacked) throw new RpcException('UNAVAILABLE', 'Request was not routed or confirmed');
             while ($reply === null) {
                 $remaining = $deadline - microtime(true);
-                if ($remaining <= 0) throw new RpcException('TIMEOUT', 'Outcome unknown; retry the same request ID and payload');
+                if ($remaining <= 0) throw new OperationTimeoutException('Operation timed out; remote outcome may be unknown', $request);
                 $channel->wait(null, false, $remaining);
             }
             return $reply;
         } catch (\PhpAmqpLib\Exception\AMQPTimeoutException $e) {
-            throw new RpcException('TIMEOUT', 'Outcome unknown; retry the same request ID and payload', ['requestId'=>$request['id']]);
+            throw new OperationTimeoutException('Operation timed out; remote outcome may be unknown', $request);
         } catch (\PhpAmqpLib\Exception\AMQPExceptionInterface $e) {
             throw new RpcException($publishAttempted ? 'OUTCOME_UNKNOWN' : 'UNAVAILABLE',
                 $publishAttempted ? 'Broker connection failed after publishing started; retry only the same request ID and payload'
