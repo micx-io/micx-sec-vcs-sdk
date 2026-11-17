@@ -1,7 +1,7 @@
 {
-  "name": "phore/project",
+  "name": "micx-io/micx-sec-vcs-sdk",
   "type": "library",
-  "description": "",
+  "description": "Queue RPC client for MICX secure VCS",
   "license": "MIT",
   "authors": [
     {
@@ -11,27 +11,26 @@
   ],
   "autoload": {
     "psr-4": {
-      "Phore\\FileSystem\\": "src/"
-    },
-    "files": [
-      "src/functions.php"
-    ]
+      "Micx\\Vcs\\": "src/"
+    }
   },
   "require": {
-    "php" : ">=8.3",
-    "ext-yaml": "*",
-    "ext-json": "*"
+    "php": ">=8.3",
+    "ext-json": "*",
+    "php-amqplib/php-amqplib": "^3.7"
   },
   "require-dev": {
-    "phpunit/phpunit": "^13.2.2"
+    "phpunit/phpunit": "^11.5"
   },
-  "suggest": {
-  },
+  "suggest": {},
   "config": {
     "preferred-install": "source",
     "allow-plugins": {
       "php-http/discovery": false
     }
   },
-  "minimum-stability": "dev"
+  "minimum-stability": "stable",
+  "scripts": {
+    "test": "phpunit"
+  }
 }
