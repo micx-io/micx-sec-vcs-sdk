@@ -24,12 +24,7 @@ final class RepositoryTest extends TestCase
             $manager->addMockDir('demo', 'main', $directory);
             $manager->setAllowMockDir(true);
             $repo = $manager->getRepository('demo', 'main');
-            try {
-                $repo->getDirectory();
-                self::fail('Expected explicit pull before getDirectory');
-            } catch (RepositoryNotReadyException $e) {
-                self::assertSame(ErrorCode::REPOSITORY_NOT_READY, $e->errorCode);
-            }
+            self::assertSame($directory, $repo->getDirectory());
             $repo->pull();
 
             file_put_contents($directory . '/a.txt', 'one');
@@ -85,7 +80,7 @@ final class RepositoryTest extends TestCase
         $repo->commit('Commit');
         $repo->pull();
         $repo->push();
-        self::assertSame(['checkout', 'pull', 'commit', 'pull', 'push'], $transport->methods);
+        self::assertSame(['checkout', 'pull', 'commit', 'checkout', 'pull', 'push'], $transport->methods);
         $this->expectException(InternalException::class);
         $repo->hasUnpushedChanges();
     }
@@ -98,7 +93,7 @@ final class RepositoryTest extends TestCase
             {
                 $this->methods[] = $request['method'];
                 $result = $request['method'] === 'checkout'
-                    ? ['workspace' => 'abc', 'path' => '/data/project']
+                    ? ['workspace' => 'abc', 'path' => '/data']
                     : [];
                 return ['version' => 1, 'id' => $request['id'], 'ok' => true, 'result' => $result];
             }
@@ -116,6 +111,39 @@ final class RepositoryTest extends TestCase
         self::assertSame([], $transport->methods);
         $repo->sync();
         self::assertSame(['checkout', 'pull', 'push'], $transport->methods);
+    }
+
+    public function testSecondHandleReadsExistingCheckoutWithoutRpc(): void
+    {
+        $transport = new class implements RpcTransport {
+            public array $methods = [];
+
+            public function request(array $request, float $timeout): array
+            {
+                $this->methods[] = $request['method'];
+                return [
+                    'version' => 1,
+                    'id' => $request['id'],
+                    'ok' => true,
+                    'result' => $request['method'] === 'checkout'
+                        ? ['workspace' => 'persisted', 'path' => '/data']
+                        : [],
+                ];
+            }
+        };
+
+        $shared = realpath(sys_get_temp_dir());
+        $repoUrl = 'git@example.test:distinct-' . bin2hex(random_bytes(8)) . '.git';
+        $first = new MixVcsManager($shared, $transport);
+        $firstRepo = $first->getRepository($repoUrl);
+        self::assertSame([], $transport->methods);
+        $firstRepo->pull();
+        self::assertSame($shared, $firstRepo->getDirectory());
+
+        $second = new MixVcsManager($shared, $transport);
+        $secondRepo = $second->getRepository($repoUrl);
+        self::assertSame($shared, $secondRepo->getDirectory());
+        self::assertSame(['checkout', 'pull'], $transport->methods);
     }
 
     public function testMockSyncUsesLocalJournalWithoutAdditionalCommit(): void
@@ -179,12 +207,7 @@ final class RepositoryTest extends TestCase
         $manager->addMockDir($sshUrl, 'main', $directory);
 
         $repo = $manager->getRepository($sshUrl, 'main');
-        try {
-            $repo->getDirectory();
-            self::fail('Mock directory must be guarded before pull');
-        } catch (RepositoryNotReadyException $e) {
-            self::assertSame(ErrorCode::REPOSITORY_NOT_READY, $e->errorCode);
-        }
+        self::assertSame(realpath($directory), $repo->getDirectory());
         $repo->pull();
         self::assertSame(realpath($directory), $repo->getDirectory());
         self::assertSame('main', $repo->getBranches()[0]->name);
