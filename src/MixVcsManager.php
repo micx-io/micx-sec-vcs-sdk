@@ -7,8 +7,7 @@ use Micx\Vcs\Exception\ErrorCode;
 use Micx\Vcs\Exception\InternalException;
 use Micx\Vcs\Exception\RepositoryNotFoundException;
 use Micx\Vcs\Exception\AccessDeniedException;
-use Micx\Vcs\Exception\ConnectionException;
-use PhpAmqpLib\Connection\AMQPStreamConnection;
+use Micx\Vcs\Transport\TransportFactory;
 
 final class MixVcsManager
 {
@@ -52,20 +51,12 @@ final class MixVcsManager
         }
         if ($connector instanceof RpcTransport) {
             $this->client = new RpcClient($connector, $timeout);
-        } elseif (is_string($connector) && !in_array(strtolower(trim($connector)), ['', 'mock', 'file'], true)
-            && !str_starts_with(strtolower(trim($connector)), 'mock://')
-            && !str_starts_with(strtolower(trim($connector)), 'file://')) {
-            if (parse_url($connector, PHP_URL_SCHEME) !== 'rabbitmq') {
-                throw new InternalException(
-                    ErrorCode::WORKER_CONFIGURATION,
-                    'Nur rabbitmq://-URLs oder null, mock, file sind als Connector-Konfiguration erlaubt.',
-                    'configure'
-                );
-            }
-
-            // Verbindungsaufbau erst beim tatsächlichen Zugriff auf ein Remote-Repository.
+        } elseif (is_string($connector) && TransportFactory::validate($connector)) {
+            // Die Factory prüft die URL hier nur syntaktisch: Mock-Hits bleiben offline.
             $this->rabbitMqUrl = $connector;
         }
+
+
 
         // Remote-Zugriff setzt ein ausdrücklich konfiguriertes, gemeinsames Mount voraus.
         if ($this->client !== null || $this->rabbitMqUrl !== null) {
@@ -155,8 +146,8 @@ final class MixVcsManager
     }
 
     /**
-     * Start a RabbitMQ connection lazily, only if a repository is not mocked.
-     * A URL may include percent-encoded user/password and an optional vhost.
+     * Erstellt den Remote-Transport beim ersten realen Repository-Zugriff.
+     * Die Factory prüft Broker-Verbindung und Channel vor dem Checkout.
      *
      * @throws ConnectionException When the broker cannot be reached.
      * @throws InternalException When no remote connector is configured.
@@ -176,35 +167,10 @@ final class MixVcsManager
             );
         }
 
-        $parts = parse_url($this->rabbitMqUrl);
-        if ($parts === false || ($parts['scheme'] ?? null) !== 'rabbitmq'
-            || !is_string($parts['host'] ?? null) || $parts['host'] === ''
-            || isset($parts['query']) || isset($parts['fragment'])) {
-            throw new InternalException(
-                ErrorCode::WORKER_CONFIGURATION,
-                'RabbitMQ-URL ungültig. Erwartet: rabbitmq://user:pass@host:5672[/vhost].',
-                'configure'
-            );
-        }
-
-        $port = $parts['port'] ?? 5672;
-        $username = rawurldecode($parts['user'] ?? 'guest');
-        $password = rawurldecode($parts['pass'] ?? 'guest');
-        $path = $parts['path'] ?? '';
-        $vhost = $path === '' || $path === '/' ? '/' : rawurldecode(ltrim($path, '/'));
-
-        try {
-            $connection = new AMQPStreamConnection($parts['host'], $port, $username, $password, $vhost);
-            $this->client = new RpcClient(new RabbitMqTransport($connection), $this->timeout);
-        } catch (\Throwable $e) {
-            throw new ConnectionException(
-                ErrorCode::CONNECTION_FAILED,
-                'RabbitMQ-Verbindung fehlgeschlagen. Host, Port, Anmeldedaten und Broker prüfen.',
-                'connect',
-                [],
-                $e
-            );
-        }
+        $this->client = new RpcClient(
+            TransportFactory::connect($this->rabbitMqUrl),
+            $this->timeout
+        );
 
         return $this->client;
     }
