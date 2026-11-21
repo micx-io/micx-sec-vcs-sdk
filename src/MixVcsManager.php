@@ -99,11 +99,11 @@ final class MixVcsManager
     /**
      * Liefert ein Repository-Objekt ohne Git-, Netzwerk- oder Dateizugriff.
      * Bei aktivem Mock-Mapping wird lokal geroutet, sonst zum Remote-Backend.
-     * Erst pull() oder sync() initialisiert das Arbeitsverzeichnis. Jeder
-     * neue Repository-Handle benötigt einen eigenen erfolgreichen Pull.
+     * Ein vorhandenes Verzeichnis ist ohne Pull direkt verfügbar.
+     * Fehlt der Checkout, kann ein anderer Prozess pull() ausführen.
      *
      * Beispiel: $repo = $manager->getRepository('git@github.com:org/app.git', 'main');
-     * Danach: $repo->pull(); $directory = $repo->getDirectory();
+     * Danach: $directory = $repo->getDirectory(); // falls vorhanden
      *
      * @throws RepositoryNotFoundException Wenn ohne Connector kein Mock existiert.
      * @see VcsRepository
@@ -125,6 +125,18 @@ final class MixVcsManager
                 "Kein Mock-Repository für '$repository' auf Branch '$branch' registriert.",
                 'getRepository',
                 ['repository' => $repository, 'branch' => $branch]
+            );
+        }
+
+        // In Production sind nur echte Remote-URLs erlaubt.
+        // Ein lokaler Pfad oder file:// darf niemals per Worker aufgelöst werden.
+        $isSshUrl = preg_match('~^ssh://[^/\\s@]+@?[^/\\s]+(?:/[^\\s]+)+$~iD', $repository) === 1;
+        $isScpUrl = preg_match('~^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\\s]+$~D', $repository) === 1;
+        $isHttpUrl = preg_match('~^https://[^/\\s@]+(?:/[^\\s]+)+$~iD', $repository) === 1;
+        $isGitUrl = preg_match('~^git://[^/\\s]+(?:/[^\\s]+)+$~iD', $repository) === 1;
+        if (!$isSshUrl && !$isScpUrl && !$isHttpUrl && !$isGitUrl) {
+            throw new \\InvalidArgumentException(
+                'Remote-Repository muss eine Git-SSH-, HTTPS- oder git://-URL sein; lokale Pfade sind nicht erlaubt.'
             );
         }
 
