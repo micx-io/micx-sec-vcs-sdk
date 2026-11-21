@@ -101,8 +101,16 @@ and push per repository URL and branch using a shared filesystem lock.
 The lock and checkout registry live under `.mix-vcs-sdk/` in the shared volume.
 Workers or applications bypassing this SDK require their own coordination.
 
-`VcsRepository` exposes `getDirectory()`, `pull()`, `sync()`, `commit()`,
+`VcsRepository` exposes `ping(timeout: 5.0)`, `getDirectory()`, `pull()`,
+`sync()`, `commit()`,
 `push()`, `hasUnpushedChanges()`, `getHistory()` and `getBranches()`.
+Calling `ping()` does not checkout or pull. The mock backend immediately
+returns `true`; the real backend sends a worker `ping` RPC with a 5-second
+response timeout by default. A successful `pong` checks connectivity,
+not SSH readiness or access to a particular Git repository. The timeout
+can be overridden per call, for example `$repo->ping(2.0)`. Failed RPCs
+raise a typed connection/timeout exception.
+
 History and branches use `Micx\Vcs\Dto\LogEntry` and
 `Micx\Vcs\Dto\BranchInfo` respectively.
 
