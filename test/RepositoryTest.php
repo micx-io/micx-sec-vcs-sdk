@@ -12,7 +12,7 @@ use Micx\Vcs\Exception\RepositoryNotFoundException;
 use Micx\Vcs\Exception\ErrorCode;
 use Micx\Vcs\Exception\ExceptionMapper;
 use Micx\Vcs\Exception\RepositoryNotReadyException;
-use Micx\Vcs\RpcTransport;
+use Micx\Vcs\Transport\RpcTransport;
 use Micx\Vcs\Transport\TransportFactory;
 use PHPUnit\Framework\TestCase;
 
