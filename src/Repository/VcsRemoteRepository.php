@@ -31,6 +31,33 @@ final class VcsRemoteRepository implements VcsRepository
     }
 
     /**
+     * Prüft Worker/RabbitMQ mit eigenem Timeout, ohne Checkout oder Pull.
+     * Ein erfolgreicher Ping bedeutet Erreichbarkeit, nicht SSH-Readiness.
+     *
+     * Beispiel: $ok = $repo->ping(5.0);
+     *
+     * @throws \\InvalidArgumentException Bei ungültigem Timeout.
+     * @see self::pull()
+     */
+    public function ping(float $timeout = 5.0): bool
+    {
+        if (!is_finite($timeout) || $timeout <= 0 || $timeout > 300) {
+            throw new \\InvalidArgumentException('Timeout must be in (0, 300] seconds');
+        }
+
+        $result = $this->client()->call('ping', [], $timeout);
+        if (!is_bool($result['pong'] ?? null)) {
+            throw new InternalException(
+                ErrorCode::INVALID_RESPONSE,
+                'Ping-Antwort enthält kein boolesches pong.',
+                'ping'
+            );
+        }
+
+        return $result['pong'];
+    }
+
+    /**
      * Gibt das bereits vorhandene Checkout-Verzeichnis ohne RPC zurück.
      * Ein erfolgreicher Pull eines anderen SDK-Prozesses genügt.
      *
