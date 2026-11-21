@@ -72,8 +72,16 @@ Applications normally do not need to construct transport objects themselves.
 
 ## Repository API
 
-`getRepository($url, $branch)` returns `VcsRepository` with
-`getDirectory()`, `pull()`, `commit()`, `push()`,
+`getRepository($url, $branch, pull: true)` ensures a checkout exists and,
+by default, also pulls changes from the remote before returning. Set
+`pull: false` when you only want the existing checkout without refreshing.
+The mock backend accepts the same flag, but its pull is a no-op. An automatic
+pull never pushes. `sync()` performs an explicit **pull followed by push**;
+it does not commit uncommitted files. Existing worker rules still apply, for
+example a dirty working tree may prevent a pull.
+
+`getRepository()` returns `VcsRepository` with
+`getDirectory()`, `pull()`, `sync()`, `commit()`, `push()`,
 `hasUnpushedChanges()`, `getHistory()` and `getBranches()`.
 History and branches use `Micx\Vcs\Dto\LogEntry` and
 `Micx\Vcs\Dto\BranchInfo` respectively.
