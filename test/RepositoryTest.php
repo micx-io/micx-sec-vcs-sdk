@@ -2,6 +2,9 @@
 declare(strict_types=1);
 
 use Micx\Vcs\MixVcsManager;
+use Micx\Vcs\Repository\VcsRepository;
+use Micx\Vcs\Repository\VcsRemoteRepository;
+use Micx\Vcs\Repository\VcsMockRepository;
 use Micx\Vcs\Exception\InternalException;
 use Micx\Vcs\Exception\ConnectionException;
 use Micx\Vcs\Exception\AccessDeniedException;
@@ -24,6 +27,8 @@ final class RepositoryTest extends TestCase
             $manager->addMockDir('demo', 'main', $directory);
             $manager->setAllowMockDir(true);
             $repo = $manager->getRepository('demo', 'main');
+            self::assertInstanceOf(VcsMockRepository::class, $repo);
+            self::assertInstanceOf(VcsRepository::class, $repo);
             self::assertSame($directory, $repo->getDirectory());
             $repo->pull();
 
@@ -66,7 +71,8 @@ final class RepositoryTest extends TestCase
 
         $sharedDirectory = realpath(sys_get_temp_dir());
         $manager = new MixVcsManager($sharedDirectory, $transport);
-        $repo = $manager->getRepository('git@example.com:a.git', 'main');
+        $repo = $manager->getRepository('git@example.com:a-' . bin2hex(random_bytes(8)) . '.git', 'main');
+        self::assertInstanceOf(VcsRemoteRepository::class, $repo);
         self::assertSame([], $transport->methods);
         try {
             $repo->getDirectory();
@@ -85,7 +91,7 @@ final class RepositoryTest extends TestCase
         $repo->hasUnpushedChanges();
     }
 
-    public function testCheckoutPullFlagAndSyncOrdering(): void
+    public function testLazyCheckoutAndSyncOrdering(): void
     {
         $transport = new class implements RpcTransport {
             public array $methods = [];
@@ -100,7 +106,7 @@ final class RepositoryTest extends TestCase
         };
 
         $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
-        $repo = $manager->getRepository('git@example.test:repo.git');
+        $repo = $manager->getRepository('git@example.test:repo-' . bin2hex(random_bytes(8)) . '.git');
         self::assertSame([], $transport->methods);
         try {
             $repo->push();
