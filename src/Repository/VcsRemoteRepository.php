@@ -36,13 +36,13 @@ final class VcsRemoteRepository implements VcsRepository
      *
      * Beispiel: $ok = $repo->ping(5.0);
      *
-     * @throws \\InvalidArgumentException Bei ungültigem Timeout.
+     * @throws \InvalidArgumentException Bei ungültigem Timeout.
      * @see self::pull()
      */
     public function ping(float $timeout = 5.0): bool
     {
         if (!is_finite($timeout) || $timeout <= 0 || $timeout > 300) {
-            throw new \\InvalidArgumentException('Timeout must be in (0, 300] seconds');
+            throw new \InvalidArgumentException('Timeout must be in (0, 300] seconds');
         }
 
         $result = $this->client()->call('ping', [], $timeout);
