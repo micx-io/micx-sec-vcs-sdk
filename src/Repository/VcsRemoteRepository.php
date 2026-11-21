@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace Micx\Vcs\Repository;
 
-use Micx\Vcs\RpcClient;
-use Micx\Vcs\WorkspaceRegistry;
+use Micx\Vcs\Helper\Workspace\RpcClient;
+use Micx\Vcs\Helper\Workspace\WorkspaceRegistry;
 use Micx\Vcs\Dto\BranchInfo;
 use Micx\Vcs\Dto\LogEntry;
 use Micx\Vcs\Exception\ErrorCode;
