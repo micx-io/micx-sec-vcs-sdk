@@ -33,7 +33,7 @@ A short configuration overview:
 ```php
 $manager = new MixVcsManager(
     sharedDirectory: '/mix/vcs',
-    connector: 'rabbitmq://user:password@rabbitmq:5672'
+    connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1'
 );
 
 $manager->setAllowMockDir(true);
@@ -61,14 +61,23 @@ directory. There is no silent default path or implicit directory creation.
 The worker's `/data` volume must be mounted there for the PHP process;
 the SDK maps the worker's workspace path into that mount.
 
-The RabbitMQ URL supports an optional port (default 5672), user/password and
-virtual host path. Percent-encode reserved characters in credentials.
+The RabbitMQ URL supports an optional port (default 5672), user/password,
+and an exchange/topic name in its path (for example `/micx.vcs.v1`). The
+path selects the RabbitMQ **topic exchange**, not the virtual host. The
+virtual host remains `/`; the routing key is `rpc.request`. With no path,
+the default exchange is `micx.vcs.v1`. The worker must bind its request
+queue to that same exchange and routing key. Percent-encode reserved
+characters in credentials.
 Connections are lazy: looking up a registered mock does not contact RabbitMQ.
 The internal `Micx\\Vcs\\Transport\\TransportFactory` validates the URL and,
 for real checkouts, opens and verifies a RabbitMQ connection and channel.
 `Micx\\Vcs\\Transport\\RabbitMqTransport` holds broker-specific transport
 logic; further transport types can be added under `src/Transport/`.
 Applications normally do not need to construct transport objects themselves.
+Internal workspace helpers (`RpcClient`, `WorkspaceRegistry`) are located
+under `Micx\\Vcs\\Helper\\Workspace`; the root `src/` contains only
+`MixVcsManager.php`. RPC transport contracts and errors reside under
+`Micx\\Vcs\\Transport`.
 
 ## Repository API
 
