@@ -3,7 +3,12 @@ declare(strict_types=1);
 
 namespace Micx\Vcs;
 
-/** Internal client for the existing VCS worker protocol. */
+use Micx\Vcs\Exception\ConnectionException;
+use Micx\Vcs\Exception\ErrorCode;
+use Micx\Vcs\Exception\ExceptionMapper;
+use Micx\Vcs\Exception\InternalException;
+
+/** Internal RPC client; application code uses MixVcsManager. */
 final class RpcClient
 {
     public function __construct(private RpcTransport $transport, private float $timeout = 60.0)
@@ -13,8 +18,8 @@ final class RpcClient
         }
     }
 
-    /** @param array<string, mixed> $params
-     *  @return array<string, mixed>
+    /** @param array<string,mixed> $params
+     *  @return array<string,mixed>
      */
     public function call(string $method, array $params = []): array
     {
@@ -23,34 +28,50 @@ final class RpcClient
 
         try {
             $reply = $this->transport->request($request, $this->timeout);
+        } catch (OperationTimeoutException $e) {
+            throw new ConnectionException(
+                ErrorCode::RPC_TIMEOUT,
+                'Keine rechtzeitige Antwort des Workers. Der Ausgang der Operation ist unbekannt.',
+                $method,
+                ['request' => $e->request] + $e->details,
+                $e
+            );
         } catch (RpcException $e) {
-            if ($e->errorCode === 'TIMEOUT') {
-                throw new OperationTimeoutException($e->getMessage(), $request, $e->details);
-            }
-            throw $e;
+            $type = in_array($e->errorCode, ['UNAVAILABLE', 'OUTCOME_UNKNOWN'], true)
+                ? ConnectionException::class : InternalException::class;
+            throw new $type(
+                ErrorCode::forWorker($e->errorCode),
+                'Kommunikation mit dem Mix-VCS-Worker fehlgeschlagen: ' . $e->getMessage(),
+                $method,
+                ['workerCode' => $e->errorCode] + $e->details,
+                $e
+            );
+        } catch (\Throwable $e) {
+            throw new ConnectionException(
+                ErrorCode::CONNECTION_FAILED,
+                'Verbindung zum VCS-Worker fehlgeschlagen. RabbitMQ-Adresse, Zugangsdaten und Netzwerk prüfen.',
+                $method,
+                [],
+                $e
+            );
         }
 
         if (($reply['version'] ?? null) !== 1 || ($reply['id'] ?? null) !== $id
             || !is_bool($reply['ok'] ?? null)) {
-            throw new RpcException('INVALID_RESPONSE', 'Invalid RPC response envelope');
+            throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Ungültige RPC-Antwort vom Worker.', $method);
         }
-
         if (!$reply['ok']) {
-            $error = $reply['error'] ?? [];
-            if (!is_array($error) || !is_string($error['code'] ?? null)
-                || !is_string($error['message'] ?? null)) {
-                throw new RpcException('INVALID_RESPONSE', 'Malformed RPC error');
+            $error = $reply['error'] ?? null;
+            if (!is_array($error) || !is_string($error['code'] ?? null) || ($error['code'] ?? '') === ''
+                || !is_string($error['message'] ?? null) || ($error['message'] ?? '') === ''
+                || (isset($error['details']) && !is_array($error['details']))) {
+                throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Ungültiges Fehlerformat vom Worker.', $method);
             }
-            if ($error['code'] === 'TIMEOUT') {
-                throw new OperationTimeoutException($error['message'], $request, $error['details'] ?? []);
-            }
-            throw new RpcException($error['code'], $error['message'], $error['details'] ?? []);
+            throw ExceptionMapper::fromWorker($error['code'], $error['message'], $method, $error['details'] ?? []);
         }
-
         if (!is_array($reply['result'] ?? null)) {
-            throw new RpcException('INVALID_RESPONSE', 'Missing RPC result');
+            throw new InternalException(ErrorCode::INVALID_RESPONSE, 'RPC-Antwort enthält kein Ergebnis.', $method);
         }
-
         return $reply['result'];
     }
 }
