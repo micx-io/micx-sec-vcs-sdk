@@ -42,10 +42,12 @@ foreach ($repo1->getHistory() as $entry) {
 // Ohne Connector wirft dieselbe Zeile RepositoryNotFoundException (MIX-VCS-3005).
 // Im rein lokalen Modus kann dieser Block auskommentiert werden.
 $repo2 = $manager->getRepository('git@github.com:example/repo2.git', 'main');
-$repo2->pull();
+// getRepository() hat bereits Checkout und Pull ausgeführt.
+// pull: false überspringt den automatischen Pull bei Bedarf.
+// $repo2 = $manager->getRepository('git@github.com:example/repo2.git', 'main', pull: false);
 file_put_contents($repo2->getDirectory() . '/hello.txt', "Hello from shared volume\n");
 $repo2->commit('Update shared content');
-$repo2->push();
+$repo2->sync(); // Erst Pull, dann Push; uncommittete Dateien werden nicht committet.
 
 // Beide Repository-Objekte besitzen dieselbe VcsRepository-API.
 // Über RabbitMQ werden nur Git-Befehle/Metadaten, keine Dateiinhalte übertragen.
