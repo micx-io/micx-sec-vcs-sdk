@@ -15,20 +15,20 @@ Fallunterscheidung erforderlich.
 ```php
 use Micx\Vcs\MixVcsManager;
 
+const DEVELOPMENT_MODE = true; // In Produktion false setzen.
+
 $manager = new MixVcsManager(
     sharedDirectory: '/vcs-share',
     connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1'
 );
+$manager->addMockDir(
+    'git@github.com:example/repo1.git',
+    'main',
+    __DIR__ . '/mock-repos/repo1'
+);
 
-// Nur für lokale Entwicklung:
-if ($developmentMode) {
-    $manager->setAllowMockDir(true);
-    $manager->addMockDir(
-        'git@github.com:example/repo1.git',
-        'main',
-        __DIR__ . '/mock-repos/repo1'
-    );
-}
+// Mappings bleiben in beiden Umgebungen im Code; nur im Dev-Modus nutzen.
+$manager->setAllowMockDir(DEVELOPMENT_MODE);
 
 $repo = $manager->getRepository('git@github.com:example/repo1.git');
 $directory = $repo->getDirectory();
@@ -43,8 +43,9 @@ Passwort dürfen im Connection-String stehen, wenn RabbitMQ ausschließlich
 über ein abgeschottetes privates Docker-Netzwerk erreichbar ist. Zugangsdaten
 dürfen dennoch nicht in Git eingecheckt oder protokolliert werden.
 
-**Mock-Modus ist standardmäßig aus.** Nur bei explizitem
-`setAllowMockDir(true)` werden hinterlegte Mock-Verzeichnisse verwendet.
+**Mock-Modus ist standardmäßig aus.** Registrierte Verzeichnisse bleiben
+auch in Produktion im Code, werden aber nur bei
+`setAllowMockDir(DEVELOPMENT_MODE)` mit `DEVELOPMENT_MODE = true` verwendet.
 Andernfalls nimmt der Manager ausschließlich gültig formatierte
 Git-Remote-URLs an; lokale Pfade und `file://` werden abgelehnt.
 Ohne RabbitMQ kann lokal auch `new MixVcsManager()` verwendet werden.
