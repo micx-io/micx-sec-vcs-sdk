@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Micx\Vcs\Exception;
 
-/** Base exception for every SDK/worker failure (programmer argument errors excluded). */
+/** Base exception for all SDK and worker failures. */
 abstract class VcsException extends \RuntimeException
 {
     public function __construct(
@@ -13,7 +13,10 @@ abstract class VcsException extends \RuntimeException
         public readonly array $details = [],
         ?\Throwable $previous = null,
     ) {
-        parent::__construct('Mix VCS [' . $errorCode . ']'
-            . ($operation !== '' ? ' (' . $operation . ')' : '') . ': ' . $message, 0, $previous);
+        parent::__construct(
+            $errorCode . ($operation !== '' ? ' (' . $operation . ')' : '') . ': ' . $message,
+            0,
+            $previous
+        );
     }
 }
