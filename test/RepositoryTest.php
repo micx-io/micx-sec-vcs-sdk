@@ -68,9 +68,54 @@ final class RepositoryTest extends TestCase
         $repo->commit('Commit');
         $repo->pull();
         $repo->push();
-        self::assertSame(['checkout', 'commit', 'pull', 'push'], $transport->methods);
+        self::assertSame(['checkout', 'pull', 'commit', 'pull', 'push'], $transport->methods);
         $this->expectException(InternalException::class);
         $repo->hasUnpushedChanges();
+    }
+
+    public function testCheckoutPullFlagAndSyncOrdering(): void
+    {
+        $transport = new class implements RpcTransport {
+            public array $methods = [];
+            public function request(array $request, float $timeout): array
+            {
+                $this->methods[] = $request['method'];
+                $result = $request['method'] === 'checkout'
+                    ? ['workspace' => 'abc', 'path' => '/data/project']
+                    : [];
+                return ['version' => 1, 'id' => $request['id'], 'ok' => true, 'result' => $result];
+            }
+        };
+
+        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $repo = $manager->getRepository('git@example.test:repo.git', pull: false);
+        self::assertSame(['checkout'], $transport->methods);
+        $repo->sync();
+        self::assertSame(['checkout', 'pull', 'push'], $transport->methods);
+    }
+
+    public function testMockSyncUsesLocalJournalWithoutAdditionalCommit(): void
+    {
+        $directory = sys_get_temp_dir() . '/mix-vcs-sync-' . bin2hex(random_bytes(6));
+        mkdir($directory);
+        try {
+            $manager = new MixVcsManager();
+            $manager->setAllowMockDir(true);
+            $manager->addMockDir('repo1.git', 'main', $directory);
+            $repo = $manager->getRepository('repo1.git');
+            file_put_contents($directory . '/file.txt', 'test');
+            $repo->commit('Test');
+            $repo->sync();
+            self::assertFalse($repo->hasUnpushedChanges());
+            self::assertCount(1, $repo->getHistory());
+        } finally {
+            foreach (glob($directory . '/{*,.*}', GLOB_BRACE) ?: [] as $file) {
+                if (is_file($file)) {
+                    unlink($file);
+                }
+            }
+            rmdir($directory);
+        }
     }
 
     public function testDiagnosticErrorNumbersAndCategories(): void
