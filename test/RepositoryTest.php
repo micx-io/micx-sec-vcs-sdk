@@ -9,6 +9,7 @@ use Micx\Vcs\Exception\RepositoryNotFoundException;
 use Micx\Vcs\Exception\ErrorCode;
 use Micx\Vcs\Exception\ExceptionMapper;
 use Micx\Vcs\RpcTransport;
+use Micx\Vcs\Transport\TransportFactory;
 use PHPUnit\Framework\TestCase;
 
 final class RepositoryTest extends TestCase
@@ -103,7 +104,7 @@ final class RepositoryTest extends TestCase
     {
         $directory = sys_get_temp_dir();
         $sshUrl = 'git@github.com:example/repo1.git';
-        $manager = new MixVcsManager(connector: 'rabbitmq://user:password@unreachable.invalid:5672');
+        $manager = new MixVcsManager(sharedDirectory: realpath(sys_get_temp_dir()), connector: 'rabbitmq://user:password@unreachable.invalid:5672');
         $manager->setAllowMockDir(true);
         $manager->addMockDir($sshUrl, 'main', $directory);
 
@@ -137,6 +138,22 @@ final class RepositoryTest extends TestCase
 
         $this->expectException(RepositoryNotFoundException::class);
         $manager->getRepository('git@github.com:example/repo1.git', 'develop');
+    }
+
+    public function testTransportFactoryRecognizesMockAndRabbitMqUrls(): void
+    {
+        foreach ([null, '', 'mock', 'file', 'mock://local', 'file:///tmp'] as $url) {
+            self::assertFalse(TransportFactory::validate($url));
+        }
+
+        self::assertTrue(TransportFactory::validate('rabbitmq://user:pass@broker:5672'));
+        self::assertTrue(TransportFactory::validate('rabbitmq://user:p%40ss@broker:5672/%2F'));
+    }
+
+    public function testTransportFactoryRejectsUnsupportedUrl(): void
+    {
+        $this->expectException(InternalException::class);
+        TransportFactory::validate('http://broker:5672');
     }
 
     public function testMissingSharedDirectoryIsRejectedForRabbitMqConnector(): void
