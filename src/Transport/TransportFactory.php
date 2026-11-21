@@ -86,6 +86,7 @@ final class TransportFactory
         $path = $parts['path'] ?? '';
         $vhost = $path === '' || $path === '/' ? '/' : rawurldecode(ltrim($path, '/'));
 
+        $connection = null;
         try {
             $connection = new AMQPStreamConnection($host, $port, $user, $password, $vhost);
             $channel = $connection->channel();
