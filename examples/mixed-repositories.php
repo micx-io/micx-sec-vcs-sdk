@@ -30,6 +30,8 @@ $manager->addMockDir('git@github.com:example/repo1.git', 'main', $mockDirectory)
 // Repo 1: URL und Branch entsprechen dem Mapping -> lokales Mock-Verzeichnis.
 // Auch bei konfiguriertem RabbitMQ wird keine Verbindung aufgebaut.
 $repo1 = $manager->getRepository('git@github.com:example/repo1.git', 'main');
+// getDirectory() wirft vor pull() MIX-VCS-2008, auch beim Mock.
+$repo1->pull(); // Lokales Mock-Verzeichnis ohne RabbitMQ aktivieren.
 file_put_contents($repo1->getDirectory() . '/hello.txt', "Hello from mock\n");
 $repo1->commit('Update mock content');
 $repo1->push();
@@ -38,16 +40,15 @@ foreach ($repo1->getHistory() as $entry) {
     echo $entry->message, PHP_EOL;
 }
 
-// Repo 2: kein Mock-Mapping -> bei vorhandenem Connector echter Checkout.
+// Repo 2: kein Mock-Mapping -> nur ein Remote-Handle, noch kein Checkout.
 // Ohne Connector wirft dieselbe Zeile RepositoryNotFoundException (MIX-VCS-3005).
 // Im rein lokalen Modus kann dieser Block auskommentiert werden.
 $repo2 = $manager->getRepository('git@github.com:example/repo2.git', 'main');
-// getRepository() hat bereits Checkout und Pull ausgeführt.
-// pull: false überspringt den automatischen Pull bei Bedarf.
-// $repo2 = $manager->getRepository('git@github.com:example/repo2.git', 'main', pull: false);
+// Erst dieser explizite Pull startet den Checkout und die Aktualisierung.
+$repo2->pull();
 file_put_contents($repo2->getDirectory() . '/hello.txt', "Hello from shared volume\n");
 $repo2->commit('Update shared content');
-$repo2->sync(); // Erst Pull, dann Push; uncommittete Dateien werden nicht committet.
+$repo2->sync(); // Pull + Push; uncommittete Dateien werden nicht committet.
 
 // Beide Repository-Objekte besitzen dieselbe VcsRepository-API.
 // Über RabbitMQ werden nur Git-Befehle/Metadaten, keine Dateiinhalte übertragen.
