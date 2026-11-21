@@ -19,7 +19,6 @@ use Micx\Vcs\Dto\LogEntry;
 final class MockRepository implements VcsRepository
 {
     private const JOURNAL = '.mix-vcs.json';
-    private bool $ready = false;
 
     public function __construct(private string $directory, private string $branch)
     {
@@ -29,23 +28,16 @@ final class MockRepository implements VcsRepository
     }
 
     /**
-     * Liefert das lokale Arbeitsverzeichnis erst nach pull() oder sync().
+     * Gibt ein existierendes Mock-Verzeichnis sofort ohne Pull zurück.
+     * Anders als beim echten Git-Checkout existiert das Verzeichnis bereits.
      *
-     * Beispiel: $repo->pull(); $directory = $repo->getDirectory();
+     * Beispiel: $directory = $repo->getDirectory();
      *
-     * @throws RepositoryNotReadyException Ohne vorherigen Pull.
+     * @throws RepositoryNotFoundException Wenn der Pfad nicht mehr existiert.
      * @see self::pull()
      */
     public function getDirectory(): string
     {
-        if (!$this->ready) {
-            throw new RepositoryNotReadyException(
-                ErrorCode::REPOSITORY_NOT_READY,
-                'Mock-Repository ist noch nicht initialisiert. Zuerst pull() ausführen.',
-                'getDirectory',
-                ['directory' => $this->directory, 'branch' => $this->branch]
-            );
-        }
         if (!is_dir($this->directory)) {
             throw new RepositoryNotFoundException(
                 ErrorCode::MOCK_DIRECTORY_NOT_FOUND,
@@ -68,7 +60,6 @@ final class MockRepository implements VcsRepository
     public function pull(): void
     {
         if (!is_dir($this->directory)) {
-            $this->ready = false;
             throw new RepositoryNotFoundException(
                 ErrorCode::MOCK_DIRECTORY_NOT_FOUND,
                 "Mock-Verzeichnis nicht gefunden: $this->directory",
@@ -84,7 +75,6 @@ final class MockRepository implements VcsRepository
             );
         }
 
-        $this->ready = true;
     }
 
     /** Mirror the remote sequence in mock mode (pull is a local no-op). */
