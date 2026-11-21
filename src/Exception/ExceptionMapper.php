@@ -20,7 +20,7 @@ final class ExceptionMapper
             'REPOSITORY_UNAVAILABLE', 'REPOSITORY_NOT_FOUND', 'REMOTE_NOT_FOUND', 'BRANCH_NOT_FOUND' => RepositoryNotFoundException::class,
             'CONFLICT', 'DIRTY_WORKTREE', 'PUSH_REJECTED' => ConflictException::class,
             'TIMEOUT', 'GIT_TIMEOUT', 'PULL_TIMEOUT', 'PUSH_TIMEOUT' => RepositoryTimeoutException::class,
-            'UNAVAILABLE', 'OUTCOME_UNKNOWN' => ConnectionException::class,
+            'UNAVAILABLE', 'NO_ROUTE', 'OUTCOME_UNKNOWN' => ConnectionException::class,
             'INVALID_RESPONSE', 'WORKER_UNAVAILABLE', 'INTERNAL_ERROR', 'UNSUPPORTED', 'INVALID_REQUEST' => InternalException::class,
             default => OperationFailedException::class,
         };
