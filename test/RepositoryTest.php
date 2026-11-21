@@ -60,9 +60,10 @@ final class RepositoryTest extends TestCase
             }
         };
 
-        $manager = new MixVcsManager('/mix/vcs', $transport);
+        $sharedDirectory = realpath(sys_get_temp_dir());
+        $manager = new MixVcsManager($sharedDirectory, $transport);
         $repo = $manager->getRepository('git@example.com:a.git', 'main');
-        self::assertSame('/mix/vcs/example', $repo->getDirectory());
+        self::assertSame($sharedDirectory . '/example', $repo->getDirectory());
         $repo->commit('Commit');
         $repo->pull();
         $repo->push();
@@ -120,8 +121,8 @@ final class RepositoryTest extends TestCase
             self::assertSame(realpath(sys_get_temp_dir()), $manager->getRepository('repo1.git')->getDirectory());
             try {
                 $manager->getRepository('repo2.git');
-            } catch (InternalException $e) {
-                self::assertSame(ErrorCode::WORKER_CONFIGURATION, $e->errorCode);
+            } catch (RepositoryNotFoundException $e) {
+                self::assertSame(ErrorCode::MOCK_REPOSITORY_NOT_FOUND, $e->errorCode);
                 continue;
             }
             self::fail('Unmapped repository should require a connector');
@@ -134,8 +135,44 @@ final class RepositoryTest extends TestCase
         $manager->setAllowMockDir(true);
         $manager->addMockDir('git@github.com:example/repo1.git', 'main', sys_get_temp_dir());
 
-        $this->expectException(InternalException::class);
+        $this->expectException(RepositoryNotFoundException::class);
         $manager->getRepository('git@github.com:example/repo1.git', 'develop');
+    }
+
+    public function testMissingSharedDirectoryIsRejectedForRabbitMqConnector(): void
+    {
+        try {
+            new MixVcsManager(connector: 'rabbitmq://user:pass@rabbitmq:5672');
+            self::fail('Remote connector must require shared directory');
+        } catch (InternalException $e) {
+            self::assertSame(ErrorCode::SHARED_DIRECTORY_INVALID, $e->errorCode);
+        }
+    }
+
+    public function testMissingSharedDirectoryIsRejectedForExplicitTransport(): void
+    {
+        $transport = $this->createMock(RpcTransport::class);
+        $this->expectException(InternalException::class);
+        new MixVcsManager(connector: $transport);
+    }
+
+    public function testInvalidSharedDirectoryIsRejectedBeforeAnyBrokerConnection(): void
+    {
+        $missing = sys_get_temp_dir() . '/mix-vcs-missing-' . bin2hex(random_bytes(6));
+        try {
+            new MixVcsManager(sharedDirectory: $missing, connector: 'rabbitmq://user:pass@rabbitmq:5672');
+            self::fail('Missing volume should not be accepted');
+        } catch (InternalException $e) {
+            self::assertSame(ErrorCode::SHARED_DIRECTORY_INVALID, $e->errorCode);
+        }
+    }
+
+    public function testMockOnlyDoesNotRequireSharedDirectory(): void
+    {
+        $manager = new MixVcsManager();
+        $manager->setAllowMockDir(true);
+        $manager->addMockDir('repo1.git', 'main', sys_get_temp_dir());
+        self::assertSame(realpath(sys_get_temp_dir()), $manager->getRepository('repo1.git')->getDirectory());
     }
 
     public function testDisabledMockCannotBeUsedWithoutConnector(): void
@@ -143,7 +180,7 @@ final class RepositoryTest extends TestCase
         $directory = sys_get_temp_dir();
         $manager = new MixVcsManager();
         $manager->addMockDir('demo', 'main', $directory);
-        $this->expectException(InternalException::class);
+        $this->expectException(RepositoryNotFoundException::class);
         $manager->getRepository('demo', 'main');
     }
 }
