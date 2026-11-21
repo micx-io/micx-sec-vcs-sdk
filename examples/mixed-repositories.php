@@ -6,6 +6,14 @@ require __DIR__ . '/../vendor/autoload.php';
 use Micx\Vcs\MixVcsManager;
 use Micx\Vcs\Exception\RepositoryNotReadyException;
 
+// Die Mock-Dateien dürfen im Projekt liegen, außerhalb von /vcs-share.
+// Das Verzeichnis muss vor addMockDir() existieren.
+const DEVELOPMENT_MODE = true; // In Produktion false setzen.
+$mockDirectory = __DIR__ . '/../mock-repos/repo1';
+if (!is_dir($mockDirectory)) {
+    mkdir($mockDirectory, 0770, true);
+}
+
 // Mischbetrieb: /vcs-share ist das bereits vorhandene gemeinsame Volume
 // (im VCS-Worker unter /data eingebunden). Git/SSH bleiben im Worker.
 // Der URL-Pfad /micx.vcs.v1 ist der RabbitMQ-Topic-Exchange.
@@ -13,23 +21,15 @@ $manager = new MixVcsManager(
     sharedDirectory: '/vcs-share',
     connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1'
 );
+$manager->addMockDir('git@github.com:example/repo1.git', 'main', $mockDirectory);
+
+// Die Mappings bleiben in Produktion stehen und werden nur im Dev-Modus genutzt.
+$manager->setAllowMockDir(DEVELOPMENT_MODE);
 
 // Alternative für lokale Entwicklung: Nur Mock-Verzeichnisse, kein RabbitMQ
 // und kein Shared Directory. Dazu die obige Konstruktion ersetzen:
 // $manager = new MixVcsManager();
 // $manager = new MixVcsManager(connector: 'mock');
-
-// Die gleiche Repository-URL funktioniert in Mock- und Remote-Betrieb.
-// Das Mock-Verzeichnis kann im Projekt liegen, außerhalb von /vcs-share.
-$mockDirectory = __DIR__ . '/../mock-repos/repo1';
-if (!is_dir($mockDirectory)) {
-    mkdir($mockDirectory, 0770, true);
-}
-
-// In Production bleibt der Mock-Modus deaktiviert.
-// Für lokale Entwicklung oder Mixed Mode explizit aktivieren:
-$manager->setAllowMockDir(true);
-$manager->addMockDir('git@github.com:example/repo1.git', 'main', $mockDirectory);
 
 // Repo 1: URL und Branch entsprechen dem Mapping -> lokales Mock-Verzeichnis.
 // Auch bei konfiguriertem RabbitMQ wird keine Verbindung aufgebaut.
