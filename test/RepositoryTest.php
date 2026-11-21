@@ -358,7 +358,7 @@ final class RepositoryTest extends TestCase
             try {
                 $manager->getRepository($url);
                 self::fail('Local path accepted as remote repository: ' . $url);
-            } catch (\\InvalidArgumentException $e) {
+            } catch (\InvalidArgumentException $e) {
                 self::assertStringContainsString('Remote-Repository', $e->getMessage());
             }
         }
@@ -371,7 +371,7 @@ final class RepositoryTest extends TestCase
             public function request(array $request, float $timeout): array
             {
                 ++$this->calls;
-                throw new \\LogicException('No RPC expected');
+                throw new \LogicException('No RPC expected');
             }
         };
 
