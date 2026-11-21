@@ -35,6 +35,24 @@ final class MixVcs
         return $reply['result'];
     }
 
+    /**
+     * Checks the RPC round trip and local SSH setup without opening a repository.
+     *
+     * A reachable worker returns pong=true even when SSH configuration is missing.
+     * In that case ready=false and errors contains actionable configuration
+     * diagnostics. Readiness does not verify remote access or authentication.
+     *
+     * @return array{pong: true, ready: bool, errors: list<array{code: string, message: string}>}
+     * @throws RpcException If the RPC transport or worker request fails.
+     * @throws OperationTimeoutException If the worker does not reply in time.
+     * @example $ping = $vcs->ping();
+     * @see self::call()
+     */
+    public function ping(): array
+    {
+        return $this->call('ping');
+    }
+
     public function checkout(string $url, ?string $branch = null, ?string $directory = null, bool $temporary = false): array
     {
         return $this->call('checkout', compact('url', 'branch', 'directory', 'temporary'));
