@@ -6,7 +6,6 @@ namespace Micx\Vcs\Transport;
 use Micx\Vcs\Exception\ConnectionException;
 use Micx\Vcs\Exception\ErrorCode;
 use Micx\Vcs\Exception\InternalException;
-use Micx\Vcs\RpcTransport;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 
 /**
