@@ -1,123 +1,89 @@
 # MICX Sec VCS SDK
 
-A small PHP 8.3+ API for repositories, with interchangeable local mock
-directories and real Git workspaces served through the
-[MICX Sec VCS worker](https://github.com/micx-io/micx-sec-vcs).
+PHP 8.3+ library for using the **same repository API** in local development
+and production. Switching between a fake local directory and a real Git
+checkout should require only configuration, not alternative application
+workflows. This removes development-environment overhead and allows the
+same application to use a mix of mocks and actual repositories.
 
-The old `MixVcs` facade is removed; **there is no backward compatibility**.
+## Design and security
 
-**Shared-folder architecture:** All content is read and written directly by
-services through a shared volume; the SDK never uploads/downloads file
-content over RabbitMQ. Only Git control operations and their compact metadata
-(e.g. commit messages, branch names and status) travel over the broker.
-The worker owns the actual Git checkout. Every consumer must mount the *same*
-worker storage volume; `sharedDirectory` is the mount path seen by PHP.
+In production, only the isolated [MICX Sec VCS worker](https://github.com/micx-io/micx-sec-vcs)
+owns SSH credentials and executes Git operations. The PHP SDK sends only
+checkout, pull, commit, push and compact Git metadata requests over RabbitMQ.
+**No repository files are copied or transmitted over RabbitMQ.** Instead, all
+services mount the worker's shared volume, so multiple independent service
+instances can work with the same checked-out files. Coordinate simultaneous
+writes to a workspace.
 
-## 1. Work with a repository
+Mocks use ordinary **local directories**, including paths outside the shared
+volume, without requiring RabbitMQ, SSH or Git. Their JSON journal is not a
+Git repository or a complete file-version history: mock `pull()` is a no-op,
+and mock `push()` records the published commit in local metadata.
 
-The worker shares its `/data` volume with the application at `/mix/vcs`.
-The worker checks out missing repositories and reuses existing workspaces.
+## One complete example
 
-```php
-<?php
-require __DIR__ . '/vendor/autoload.php';
+[examples/workflow.php](examples/workflow.php) demonstrates **mixed mode**:
+a RabbitMQ URL with explicit shared directory, one SSH URL mapped to a mock
+directory, and another SSH URL checked out by the worker. The same file also
+shows the pure-mock constructor alternatives as commented lines.
 
-use Micx\Vcs\MixVcsManager;
-$manager = new MixVcsManager(connector: 'rabbitmq://micx:micx@rabbitmq:5672');
-$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main');
-
-file_put_contents($repo->getDirectory() . '/hello.txt', "Hello\n");
-$repo->commit('Write hello.txt');
-$repo->pull(); // Local version wins on conflicts, as defined by the worker.
-$repo->push();
-
-```
-
-`getRepository()` returns `VcsRepository`, regardless of the backend.
-The public API is `getDirectory()`, `pull()`, `commit()`, `push()`,
-`hasUnpushedChanges()`, `getHistory()` and `getBranches()`.
-
-The optional `connector:` accepts an existing `RpcTransport`, a
-`rabbitmq://username:password@host:port` URL, or `null` (the default).
-Credentials containing reserved URL characters must be percent-encoded.
-An optional `/vhost` selects the RabbitMQ virtual host; otherwise `/` is used.
-`mock`, `file`, `mock://...` and `file://...` also mean **no remote
-connector**. Such selectors do not implicitly create a mock mapping.
-The RabbitMQ connection is created **lazily** only for an unmapped repository.
-A manager can thus serve both local mocks and real repositories without
-connecting to the broker for a mock hit.
-
-Configure a different local mount point with `sharedDirectory:`.
-This path mapping assumes the worker exposes its storage as `/data`.
-
-## 2. Map a local mock directory
+A short configuration overview:
 
 ```php
-$manager = new MixVcsManager();
+$manager = new MixVcsManager(
+    sharedDirectory: '/mix/vcs',
+    connector: 'rabbitmq://user:password@rabbitmq:5672'
+);
+
 $manager->setAllowMockDir(true);
-$manager->addMockDir('git@github.com:example/repo1.git', 'main', '/tmp/demo-project');
-$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main');
+$mockDirectory = '/tmp/local-repo1'; // Must exist.
+$manager->addMockDir('git@github.com:example/repo1.git', 'main', $mockDirectory);
 
-file_put_contents($repo->getDirectory() . '/page.md', "# Hello\n");
-var_dump($repo->hasUnpushedChanges()); // true
-$repo->commit('Create page');
-var_dump($repo->hasUnpushedChanges()); // true: not pushed
-$repo->push();
-var_dump($repo->hasUnpushedChanges()); // false
+$repo1 = $manager->getRepository('git@github.com:example/repo1.git', 'main');
+$repo2 = $manager->getRepository('git@github.com:example/repo2.git', 'main');
 ```
 
-The directory must exist and be writable. It can be **outside** the shared
-directory. A mock mapping is selected only when mock mode is enabled.
-The key is the **exact repository string plus branch**: SSH URLs are allowed,
-and the mapping does not require the repository to exist remotely. Without a
-mapping, the manager uses the configured connector or fails explicitly.
-For mixed mode, initialize the same manager with a RabbitMQ URL, enable mocks,
-and register only the repositories/branches that should use local folders.
+The mock lookup compares the **full repository identifier and branch exactly**,
+so a Git SSH URL can map to a local folder even when the actual remote does
+not exist. If no match exists, a configured connector checks out the real
+repository. **Without a connector**, an unmapped repository raises
+`RepositoryNotFoundException` with `MIX-VCS-3005`, not a connection error.
 
-Mocks store commit metadata in `.mix-vcs.json` inside the mapped directory.
-They fingerprint files to detect subsequent changes. This journal is **not Git**:
-it does not store file versions or provide a real remote, and `pull()` is a
-no-op for mocks. History records commit metadata, not retrievable snapshots.
-Each mock branch should have its own directory; mock `getBranches()` reports
-the configured branch only. Do not write the same mock directory concurrently
-from multiple processes without external synchronization.
+With **no** remote connector, simply use `new MixVcsManager()`,
+`new MixVcsManager(connector: 'mock')` or `connector: null` and register
+mock mappings. `file`, `mock://...` and `file://...` are also mock-only
+selectors. A mock mapping is only active after `setAllowMockDir(true)`.
 
-## 3. Typed history and branches
+For **any** real connector, including a supplied `RpcTransport`, the caller
+must **explicitly set** `sharedDirectory:` to an existing readable absolute
+directory. There is no silent default path or implicit directory creation.
+The worker's `/data` volume must be mounted there for the PHP process;
+the SDK maps the worker's workspace path into that mount.
 
-```php
-foreach ($repo->getHistory() as $entry) {
-    echo $entry->id, ' ', $entry->message, ' ', $entry->timestamp, PHP_EOL;
-}
+The RabbitMQ URL supports an optional port (default 5672), user/password and
+virtual host path. Percent-encode reserved characters in credentials.
+Connections are lazy: looking up a registered mock does not contact RabbitMQ.
 
-foreach ($repo->getBranches() as $branch) {
-    echo $branch->name, ' ', $branch->latestCommit?->message ?? '', PHP_EOL;
-}
-```
+## Repository API
 
-History entries use `Micx\Vcs\Dto\LogEntry`; branch entries use
-`Micx\Vcs\Dto\BranchInfo`.
+`getRepository($url, $branch)` returns `VcsRepository` with
+`getDirectory()`, `pull()`, `commit()`, `push()`,
+`hasUnpushedChanges()`, `getHistory()` and `getBranches()`.
+History and branches use `Micx\Vcs\Dto\LogEntry` and
+`Micx\Vcs\Dto\BranchInfo` respectively.
 
-**Worker compatibility:** The existing worker already supports checkout,
-pull, commit and push. It does **not yet** expose the `log` and `branches`
-RPC operations or `status.hasUnpushedChanges` required by the new real
-backend. Those three methods will fail explicitly until the worker is
-extended. This SDK PR does not silently synthesize results. The old
-`MixVcs` API has been removed without a compatibility alias.
+The worker currently needs additional RPC support for `log`, `branches`
+and `status.hasUnpushedChanges` on real repositories. Those calls fail
+explicitly until the worker supports them. Mock implementations are available.
+The former `MixVcs` API has been removed without backward compatibility.
 
-## Errors and troubleshooting
+## Errors
 
-All SDK failures use stable `MIX-VCS-xxxx` numbers. Catch
-`Micx\Vcs\Exception\InternalException` for worker, RabbitMQ and protocol
-failures; catch `Micx\Vcs\Exception\RepositoryException` for repository,
-Git, permissions and mock-folder errors. Each exception contains `errorCode`,
-`operation` and `details`. See the [error code table](docs/error-codes.md)
-for numbered causes and remedies.
+Exceptions expose stable `MIX-VCS-xxxx` error codes and distinguish
+internal/connection faults from repository, authorization and filesystem
+problems. See [the error code catalog](docs/error-codes.md) for remedies.
+In particular, `MIX-VCS-1006` denotes a missing or invalid shared mount,
+and `MIX-VCS-3005` an unmapped mock repository without a remote connector.
 
-## Examples
-
-1. [Remote workflow](examples/workflow.php)
-2. [Local mock workflow](examples/02-mock-repository.php)
-3. [Typed repository metadata](examples/03-history-branches.php)
-4. [Mixed mock and SSH repositories](examples/04-mixed-repositories.php)
-
-Run `composer install` and `composer test` in a development checkout.
+Run `composer install` and `composer test` to validate the checkout.
