@@ -42,7 +42,9 @@ final class MixVcsManager
         $this->sharedDirectory = rtrim($sharedDirectory, '/') ?: '/';
         if ($connector instanceof RpcTransport) {
             $this->client = new RpcClient($connector, $timeout);
-        } elseif (is_string($connector) && !in_array(strtolower(trim($connector)), ['', 'mock', 'file', 'file://'], true)) {
+        } elseif (is_string($connector) && !in_array(strtolower(trim($connector)), ['', 'mock', 'file'], true)
+            && !str_starts_with(strtolower(trim($connector)), 'mock://')
+            && !str_starts_with(strtolower(trim($connector)), 'file://')) {
             if (parse_url($connector, PHP_URL_SCHEME) !== 'rabbitmq') {
                 throw new InternalException(
                     ErrorCode::WORKER_CONFIGURATION,
