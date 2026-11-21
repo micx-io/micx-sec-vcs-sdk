@@ -8,6 +8,8 @@ use Micx\Vcs\Exception\InternalException;
 use Micx\Vcs\Exception\RepositoryNotFoundException;
 use Micx\Vcs\Exception\AccessDeniedException;
 use Micx\Vcs\Transport\TransportFactory;
+use Micx\Vcs\Transport\RpcTransport;
+use Micx\Vcs\Helper\Workspace\RpcClient;
 use Micx\Vcs\Repository\VcsRepository;
 use Micx\Vcs\Repository\VcsMockRepository;
 use Micx\Vcs\Repository\VcsRemoteRepository;
