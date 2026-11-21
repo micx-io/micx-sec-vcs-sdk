@@ -118,5 +118,6 @@ for numbered causes and remedies.
 1. [Remote workflow](examples/workflow.php)
 2. [Local mock workflow](examples/02-mock-repository.php)
 3. [Typed repository metadata](examples/03-history-branches.php)
+4. [Mixed mock and SSH repositories](examples/04-mixed-repositories.php)
 
 Run `composer install` and `composer test` in a development checkout.
