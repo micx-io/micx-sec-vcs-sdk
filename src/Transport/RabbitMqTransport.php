@@ -2,9 +2,6 @@
 declare(strict_types=1);
 namespace Micx\Vcs\Transport;
 
-use Micx\Vcs\RpcTransport;
-use Micx\Vcs\RpcException;
-use Micx\Vcs\OperationTimeoutException;
 use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
