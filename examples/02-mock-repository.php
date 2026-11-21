@@ -11,10 +11,10 @@ if (!is_dir($directory)) {
     mkdir($directory, 0770, true);
 }
 
-$manager = new MixVcsManager();
+$manager = new MixVcsManager(connector: 'mock');
 $manager->setAllowMockDir(true);
-$manager->addMockDir('demo/project', 'main', $directory);
-$repo = $manager->getRepository('demo/project', 'main');
+$manager->addMockDir('git@github.com:example/repo1.git', 'main', $directory);
+$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main');
 
 file_put_contents($repo->getDirectory() . '/hello.txt', "Hello mock\n");
 echo $repo->hasUnpushedChanges() ? "Changed\n" : "Clean\n"; // Changed
