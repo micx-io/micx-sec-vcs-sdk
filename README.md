@@ -23,7 +23,7 @@ and mock `push()` records the published commit in local metadata.
 
 ## One complete example
 
-[examples/workflow.php](examples/workflow.php) demonstrates **mixed mode**:
+[examples/mixed-repositories.php](examples/mixed-repositories.php) demonstrates **mixed mode**:
 a RabbitMQ URL with explicit shared directory, one SSH URL mapped to a mock
 directory, and another SSH URL checked out by the worker. The same file also
 shows the pure-mock constructor alternatives as commented lines.
