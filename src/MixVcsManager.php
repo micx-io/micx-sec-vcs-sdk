@@ -28,6 +28,7 @@ final class MixVcsManager
      * An existing RpcTransport or rabbitmq:// URL enables remote checkout.
      * null, mock, file and mock:// or file:// selectors disable remote access.
      * With a remote connector, sharedDirectory must be explicitly set and exist.
+     * deferSharedDirectoryValidation delays that check until a remote repository is requested.
      * The connection from a URL is opened lazily on the first real checkout.
      *
      * Example:
@@ -43,6 +44,7 @@ final class MixVcsManager
         private ?string $sharedDirectory = null,
         RpcTransport|string|null $connector = null,
         float $timeout = 60.0,
+        bool $deferSharedDirectoryValidation = false,
     ) {
         if ($sharedDirectory !== null) {
             if ($sharedDirectory === '' || $sharedDirectory[0] !== '/') {
@@ -63,7 +65,7 @@ final class MixVcsManager
 
 
         // Remote-Zugriff setzt ein ausdrücklich konfiguriertes, gemeinsames Mount voraus.
-        if ($this->client !== null || $this->rabbitMqUrl !== null) {
+        if (!$deferSharedDirectoryValidation && ($this->client !== null || $this->rabbitMqUrl !== null)) {
             $this->assertSharedDirectory();
         }
 
@@ -97,7 +99,8 @@ final class MixVcsManager
     }
 
     /**
-     * Liefert ein Repository-Objekt ohne Git-, Netzwerk- oder Dateizugriff.
+     * Liefert ein Repository-Objekt ohne Git- oder Netzwerkzugriff.
+     * Für Remote-Repositories wird das gemeinsame Verzeichnis geprüft.
      * Bei aktivem Mock-Mapping wird lokal geroutet, sonst zum Remote-Backend.
      * Ein vorhandenes Verzeichnis ist ohne Pull direkt verfügbar.
      * Fehlt der Checkout, kann ein anderer Prozess pull() ausführen.
@@ -139,6 +142,8 @@ final class MixVcsManager
                 'Remote-Repository muss eine Git-SSH-, HTTPS- oder git://-URL sein; lokale Pfade sind nicht erlaubt.'
             );
         }
+
+        $this->assertSharedDirectory();
 
         // Auch der RabbitMQ-Transport wird erst beim ersten pull() erzeugt.
         return new VcsRemoteRepository(
