@@ -3,6 +3,11 @@ declare(strict_types=1);
 
 namespace Micx\Vcs;
 
+use Micx\Vcs\Exception\ErrorCode;
+use Micx\Vcs\Exception\AccessDeniedException;
+use Micx\Vcs\Exception\RepositoryNotFoundException;
+use Micx\Vcs\Exception\OperationFailedException;
+
 use Micx\Vcs\Dto\BranchInfo;
 use Micx\Vcs\Dto\LogEntry;
 
@@ -17,7 +22,7 @@ final class MockRepository implements VcsRepository
     public function __construct(private string $directory, private string $branch)
     {
         if (!is_dir($directory) || !is_readable($directory) || !is_writable($directory)) {
-            throw new \RuntimeException("Mock directory is inaccessible: $directory");
+            throw !file_exists($directory) ? new RepositoryNotFoundException(ErrorCode::MOCK_DIRECTORY_NOT_FOUND, "Mock-Verzeichnis nicht gefunden: $directory", 'open') : new AccessDeniedException(ErrorCode::MOCK_DIRECTORY_DENIED, "Mock-Verzeichnis nicht zugreifbar: $directory", 'open');
         }
     }
 
@@ -56,7 +61,7 @@ final class MockRepository implements VcsRepository
     {
         $journal = $this->readJournal();
         if ($this->fingerprint() !== ($journal['committedHash'] ?? null)) {
-            throw new \LogicException('Commit working changes before pushing');
+            throw new OperationFailedException(ErrorCode::CONFLICT, 'Vor dem Push müssen Änderungen committet werden.', 'push');
         }
         $journal['pushedCommit'] = $journal['history'][0]['id'] ?? null;
         $this->writeJournal($journal);
@@ -91,15 +96,15 @@ final class MockRepository implements VcsRepository
             return ['history' => [], 'committedHash' => null, 'pushedCommit' => null];
         }
         if (!is_readable($file)) {
-            throw new \RuntimeException("Mock journal is unreadable: $file");
+            throw new AccessDeniedException(ErrorCode::MOCK_DIRECTORY_DENIED, "Mock-Journal nicht lesbar: $file", 'history');
         }
         $content = file_get_contents($file);
         if ($content === false) {
-            throw new \RuntimeException("Unable to read mock journal: $file");
+            throw new OperationFailedException(ErrorCode::MOCK_IO_FAILED, "Mock-Journal konnte nicht gelesen werden: $file", 'history');
         }
         $data = json_decode($content, true, 64, JSON_THROW_ON_ERROR);
         if (!is_array($data) || !is_array($data['history'] ?? null)) {
-            throw new \RuntimeException("Invalid mock journal: $file");
+            throw new OperationFailedException(ErrorCode::MOCK_JOURNAL_INVALID, "Mock-Journal ungültig: $file", 'history');
         }
 
         return $data;
@@ -111,13 +116,13 @@ final class MockRepository implements VcsRepository
         $file = $this->directory . '/' . self::JOURNAL;
         $temporary = tempnam($this->directory, '.mix-vcs-');
         if ($temporary === false) {
-            throw new \RuntimeException("Cannot create mock journal in: $this->directory");
+            throw new OperationFailedException(ErrorCode::MOCK_IO_FAILED, "Mock-Journal konnte nicht erstellt werden: $this->directory", 'commit');
         }
 
         try {
             $json = json_encode($journal, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
             if (file_put_contents($temporary, $json . "\n", LOCK_EX) === false || !rename($temporary, $file)) {
-                throw new \RuntimeException("Cannot write mock journal: $file");
+                throw new OperationFailedException(ErrorCode::MOCK_IO_FAILED, "Mock-Journal konnte nicht geschrieben werden: $file", 'commit');
             }
         } finally {
             if (file_exists($temporary)) {
@@ -141,14 +146,14 @@ final class MockRepository implements VcsRepository
                 continue;
             }
             if ($file->isLink()) {
-                throw new \RuntimeException("Symlinks are not supported in mock directory: $relative");
+                throw new OperationFailedException(ErrorCode::MOCK_IO_FAILED, "Symlink im Mock-Verzeichnis nicht unterstützt: $relative", 'status');
             }
             if (!$file->isFile()) {
                 continue;
             }
             $hash = hash_file('sha256', $file->getPathname());
             if ($hash === false) {
-                throw new \RuntimeException("Cannot hash mock file: $relative");
+                throw new OperationFailedException(ErrorCode::MOCK_IO_FAILED, "Mock-Datei konnte nicht gelesen werden: $relative", 'status');
             }
             $paths[$relative] = $hash;
         }
