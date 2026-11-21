@@ -20,15 +20,18 @@ final class MixVcsManager
     private float $timeout;
 
     /**
-     * Manage repositories by URL/name and branch. The optional transport is only
-     * required for repositories that are not mapped to local mock directories.
+     * Manages local mocks and real Git repositories through a single public API.
+     * An existing RpcTransport or rabbitmq:// URL enables remote checkout.
+     * null, mock, file and mock:// or file:// selectors disable remote access.
+     * The connection from a URL is opened lazily on the first real checkout.
      *
      * Example:
      * $manager = new MixVcsManager();
      * $manager->setAllowMockDir(true);
-     * $manager->addMockDir('demo', 'main', '/tmp/demo');
-     * $repository = $manager->getRepository('demo', 'main');
+     * $manager->addMockDir('git@github.com:example/repo1.git', 'main', '/tmp/demo');
+     * $repository = $manager->getRepository('git@github.com:example/repo1.git', 'main');
      *
+     * @throws InternalException For an unsupported connector URI scheme.
      * @see VcsRepository
      */
     public function __construct(
@@ -92,7 +95,7 @@ final class MixVcsManager
      *
      * Example: $repo = $manager->getRepository('git@github.com:org/app.git', 'main');
      *
-     * @throws \LogicException When no connector is supplied for a real repository.
+     * @throws InternalException When no connector is configured for a real repository.
      * @see VcsRepository
      */
     public function getRepository(string $repository, string $branch = 'main'): VcsRepository
