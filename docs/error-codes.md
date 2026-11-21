@@ -14,6 +14,7 @@ original RPC error code. Errors from caller argument validation remain native
 | `MIX-VCS-1003` | Internal / Connection | Worker did not answer before RPC deadline | Inspect worker state; operation may already have executed |
 | `MIX-VCS-1004` | Internal / Connection | Broker connection lost after publish | Check operation outcome before any retry |
 | `MIX-VCS-1005` | Internal | Worker/connector missing, unsupported or misconfigured | Check worker version and configuration |
+| `MIX-VCS-1006` | Internal | Shared directory for remote operation missing, not absolute or not readable | Configure existing shared mount accessible to the PHP service |
 | `MIX-VCS-2001` | Repository / Authentication | Missing/invalid SSH key, failed authentication or host-key check | Configure worker SSH key and trusted hosts |
 | `MIX-VCS-2002` | Repository / AccessDenied | No Git repository permissions or push not allowed | Check Git server authorization and branch policy |
 | `MIX-VCS-2003` | Repository / NotFound | Repository or branch missing/unreachable | Check URL, branch and credentials |
@@ -25,6 +26,7 @@ original RPC error code. Errors from caller argument validation remain native
 | `MIX-VCS-3002` | Repository / AccessDenied | Mock directory or journal cannot be accessed | Check ownership, filesystem and permissions |
 | `MIX-VCS-3003` | Repository / OperationFailed | Invalid local `.mix-vcs.json` | Inspect or recover mock journal metadata |
 | `MIX-VCS-3004` | Repository / OperationFailed | Mock filesystem read/write failure | Check free space, filesystem and symlinks |
+| `MIX-VCS-3005` | Repository / NotFound | Requested repository + branch not registered in mock-only mode | Configure an exact mock mapping or a remote connector |
 | `MIX-VCS-9001` | Internal | Malformed/incomplete RPC response | Match worker and SDK protocol versions |
 | `MIX-VCS-9002` | Internal | Worker has not implemented a required RPC operation | Upgrade worker to implement the method |
 
