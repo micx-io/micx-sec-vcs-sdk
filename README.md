@@ -64,6 +64,11 @@ the SDK maps the worker's workspace path into that mount.
 The RabbitMQ URL supports an optional port (default 5672), user/password and
 virtual host path. Percent-encode reserved characters in credentials.
 Connections are lazy: looking up a registered mock does not contact RabbitMQ.
+The internal `Micx\\Vcs\\Transport\\TransportFactory` validates the URL and,
+for real checkouts, opens and verifies a RabbitMQ connection and channel.
+`Micx\\Vcs\\Transport\\RabbitMqTransport` holds broker-specific transport
+logic; further transport types can be added under `src/Transport/`.
+Applications normally do not need to construct transport objects themselves.
 
 ## Repository API
 
