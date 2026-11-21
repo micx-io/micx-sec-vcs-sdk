@@ -48,7 +48,16 @@ final class TransportFactory
             || isset($parts['query']) || isset($parts['fragment'])) {
             throw new InternalException(
                 ErrorCode::WORKER_CONFIGURATION,
-                'Connector-URL muss rabbitmq://user:pass@host:5672[/vhost] sein.',
+                'Connector-URL muss rabbitmq://user:pass@host:5672[/topic] sein.',
+                'configure'
+            );
+        }
+
+        $topic = rawurldecode(ltrim($parts['path'] ?? '', '/'));
+        if ($topic !== '' && !preg_match('/^[A-Za-z0-9._-]{1,255}$/D', $topic)) {
+            throw new InternalException(
+                ErrorCode::WORKER_CONFIGURATION,
+                'Ungültiger RabbitMQ-Topic-Exchange-Name im URL-Pfad.',
                 'configure'
             );
         }
@@ -82,8 +91,9 @@ final class TransportFactory
         $port = $parts['port'] ?? 5672;
         $user = rawurldecode($parts['user'] ?? 'guest');
         $password = rawurldecode($parts['pass'] ?? 'guest');
-        $path = $parts['path'] ?? '';
-        $vhost = $path === '' || $path === '/' ? '/' : rawurldecode(ltrim($path, '/'));
+        $topic = rawurldecode(ltrim($parts['path'] ?? '', '/'));
+        $exchange = $topic !== '' ? $topic : RabbitMqTransport::EXCHANGE;
+        $vhost = '/';
 
         $connection = null;
         try {
@@ -91,7 +101,7 @@ final class TransportFactory
             $channel = $connection->channel();
             $channel->close();
 
-            return new RabbitMqTransport($connection);
+            return new RabbitMqTransport($connection, $exchange);
         } catch (\Throwable $e) {
             try {
                 $connection?->close();
