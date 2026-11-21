@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Micx\Vcs\Exception;
 
-/** Converts wire protocol codes to stable public SDK exceptions. */
+/** Translate worker errors to typed public SDK failures. */
 final class ExceptionMapper
 {
     /** @param array<string, mixed> $details */
@@ -20,27 +20,23 @@ final class ExceptionMapper
             'REPOSITORY_UNAVAILABLE', 'REPOSITORY_NOT_FOUND', 'REMOTE_NOT_FOUND', 'BRANCH_NOT_FOUND' => RepositoryNotFoundException::class,
             'CONFLICT', 'DIRTY_WORKTREE', 'PUSH_REJECTED' => ConflictException::class,
             'TIMEOUT', 'GIT_TIMEOUT', 'PULL_TIMEOUT', 'PUSH_TIMEOUT' => RepositoryTimeoutException::class,
-            'INVALID_RESPONSE', 'UNAVAILABLE', 'OUTCOME_UNKNOWN', 'WORKER_UNAVAILABLE',
-            'INTERNAL_ERROR', 'UNSUPPORTED', 'INVALID_REQUEST' => InternalException::class,
+            'UNAVAILABLE', 'OUTCOME_UNKNOWN' => ConnectionException::class,
+            'INVALID_RESPONSE', 'WORKER_UNAVAILABLE', 'INTERNAL_ERROR', 'UNSUPPORTED', 'INVALID_REQUEST' => InternalException::class,
             default => OperationFailedException::class,
         };
-
-        $explanation = match ($code) {
-            'SSH_KEY_MISSING' => 'Kein SSH-Key für den VCS-Worker konfiguriert.',
-            'SSH_AUTH_FAILED' => 'Der Git-Server hat die SSH-Anmeldung abgelehnt.',
-            'SSH_HOST_KEY_FAILED' => 'Der SSH-Host-Key konnte nicht verifiziert werden.',
+        $hint = match ($code) {
+            'SSH_KEY_MISSING' => 'Kein SSH-Key im Worker konfiguriert.',
+            'SSH_AUTH_FAILED' => 'Git-Server hat SSH-Anmeldung abgelehnt.',
+            'SSH_HOST_KEY_FAILED' => 'Git-Server-Host-Key nicht verifiziert.',
             'ACCESS_DENIED', 'PERMISSION_DENIED', 'FORBIDDEN', 'PUSH_DENIED' =>
-                'Die Berechtigung für das Repository oder die Git-Operation fehlt.',
-            'PUSH_REJECTED' => 'Der Remote-Branch weist den Push zurück; Branchschutz oder neue Remote-Commits prüfen.',
-            'DIRTY_WORKTREE' => 'Arbeitsverzeichnis enthält nicht committete Änderungen.',
-            'REPOSITORY_UNAVAILABLE', 'REPOSITORY_NOT_FOUND' =>
-                'Repository nicht erreichbar oder nicht vorhanden; URL und Berechtigungen prüfen.',
+                'Repository- oder Push-Berechtigung fehlt.',
+            'PUSH_REJECTED' => 'Push zurückgewiesen; Branchschutz oder neuere Remote-Commits prüfen.',
+            'DIRTY_WORKTREE' => 'Uncommittete Änderungen zuerst committen.',
+            'REPOSITORY_UNAVAILABLE', 'REPOSITORY_NOT_FOUND' => 'Remote-URL und Zugriff prüfen.',
             'TIMEOUT', 'GIT_TIMEOUT', 'PULL_TIMEOUT', 'PUSH_TIMEOUT' =>
-                'Git-Operation hat ihr Zeitlimit überschritten; Ergebnis am Remote prüfen, bevor erneut gesendet wird.',
+                'Zeitlimit überschritten; vor Retry Remote-Status prüfen.',
             default => '',
         };
-
-        $description = $explanation === '' ? $message : $explanation . ' Worker: ' . $message;
-        return new $class($code, $description, $operation, $details);
+        return new $class(ErrorCode::forWorker($code), trim($hint . ' ' . $message), $operation, ['workerCode' => $code] + $details);
     }
 }
