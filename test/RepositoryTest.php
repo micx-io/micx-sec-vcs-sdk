@@ -98,6 +98,46 @@ final class RepositoryTest extends TestCase
         }
     }
 
+    public function testRabbitMqUrlDoesNotConnectWhenMockMatches(): void
+    {
+        $directory = sys_get_temp_dir();
+        $sshUrl = 'git@github.com:example/repo1.git';
+        $manager = new MixVcsManager(connector: 'rabbitmq://user:password@unreachable.invalid:5672');
+        $manager->setAllowMockDir(true);
+        $manager->addMockDir($sshUrl, 'main', $directory);
+
+        $repo = $manager->getRepository($sshUrl, 'main');
+        self::assertSame(realpath($directory), $repo->getDirectory());
+        self::assertSame('main', $repo->getBranches()[0]->name);
+    }
+
+    public function testMockSelectorsDoNotInitializeRemoteConnections(): void
+    {
+        foreach ([null, 'mock', 'file', 'mock://local', 'file:///tmp'] as $connector) {
+            $manager = new MixVcsManager(connector: $connector);
+            $manager->setAllowMockDir(true);
+            $manager->addMockDir('repo1.git', 'main', sys_get_temp_dir());
+            self::assertSame(realpath(sys_get_temp_dir()), $manager->getRepository('repo1.git')->getDirectory());
+            try {
+                $manager->getRepository('repo2.git');
+            } catch (InternalException $e) {
+                self::assertSame(ErrorCode::WORKER_CONFIGURATION, $e->errorCode);
+                continue;
+            }
+            self::fail('Unmapped repository should require a connector');
+        }
+    }
+
+    public function testMockBranchUsesExactMapping(): void
+    {
+        $manager = new MixVcsManager(connector: 'file');
+        $manager->setAllowMockDir(true);
+        $manager->addMockDir('git@github.com:example/repo1.git', 'main', sys_get_temp_dir());
+
+        $this->expectException(InternalException::class);
+        $manager->getRepository('git@github.com:example/repo1.git', 'develop');
+    }
+
     public function testDisabledMockCannotBeUsedWithoutConnector(): void
     {
         $directory = sys_get_temp_dir();
