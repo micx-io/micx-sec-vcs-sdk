@@ -4,7 +4,6 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Micx\Vcs\MixVcsManager;
-use Micx\Vcs\Exception\RepositoryNotFoundException;
 
 // Mischbetrieb: /mix/vcs ist das bereits vorhandene gemeinsame Volume
 // (im VCS-Worker unter /data eingebunden). Git/SSH bleiben im Worker.
