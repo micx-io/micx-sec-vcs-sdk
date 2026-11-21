@@ -1,130 +1,66 @@
 # MICX Sec VCS SDK
 
-PHP 8.3+ library for using the **same repository API** in local development
-and production. Switching between a fake local directory and a real Git
-checkout should require only configuration, not alternative application
-workflows. This removes development-environment overhead and allows the
-same application to use a mix of mocks and actual repositories.
+PHP SDK für den Zugriff auf Git-Repositories über einen isolierten VCS-Worker.
+Die Anwendung benötigt keinen Git-SSH-Key: Er liegt als Secret ausschließlich
+beim Worker. Zwischen Anwendung und Worker liegt RabbitMQ; die Dateien
+stehen über ein gemeinsam gemountetes Volume bereit.
 
-## Design and security
+Das gleiche API funktioniert lokal ohne Worker. Mock-Verzeichnisse können
+direkt im Anwendungsrepository liegen. Dadurch ist zwischen Entwicklung
+und Produktion keine eigene Git-Implementierung oder aufwendige
+Fallunterscheidung erforderlich.
 
-In production, only the isolated [MICX Sec VCS worker](https://github.com/micx-io/micx-sec-vcs)
-owns SSH credentials and executes Git operations. The PHP SDK sends only
-checkout, pull, commit, push and compact Git metadata requests over RabbitMQ.
-**No repository files are copied or transmitted over RabbitMQ.** Instead, all
-services mount the worker's shared volume, so multiple independent service
-instances can work with the same checked-out files. Coordinate simultaneous
-writes to a workspace.
-
-Mocks use ordinary **local directories**, including paths outside the shared
-volume, without requiring RabbitMQ, SSH or Git. Their JSON journal is not a
-Git repository or a complete file-version history: mock `pull()` is a no-op,
-and mock `push()` records the published commit in local metadata.
-
-## One complete example
-
-[examples/mixed-repositories.php](examples/mixed-repositories.php) demonstrates **mixed mode**:
-a RabbitMQ URL with explicit shared directory, one SSH URL mapped to a mock
-directory, and another SSH URL whose checkout is triggered explicitly by `pull()`. The same file also
-shows the pure-mock constructor alternatives as commented lines.
-
-A short configuration overview:
+## Verwendung
 
 ```php
+use Micx\Vcs\MixVcsManager;
+
 $manager = new MixVcsManager(
-    sharedDirectory: '/mix/vcs',
+    sharedDirectory: '/vcs-share',
     connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1'
 );
 
-$manager->setAllowMockDir(true);
-$mockDirectory = '/tmp/local-repo1'; // Must exist.
-$manager->addMockDir('git@github.com:example/repo1.git', 'main', $mockDirectory);
+// Nur für lokale Entwicklung:
+if ($developmentMode) {
+    $manager->setAllowMockDir(true);
+    $manager->addMockDir(
+        'git@github.com:example/repo1.git',
+        'main',
+        __DIR__ . '/mock-repos/repo1'
+    );
+}
 
-$repo1 = $manager->getRepository('git@github.com:example/repo1.git', 'main');
-$repo2 = $manager->getRepository('git@github.com:example/repo2.git', 'main');
+$repo = $manager->getRepository('git@github.com:example/repo1.git');
+$directory = $repo->getDirectory();
 ```
 
-The mock lookup compares the **full repository identifier and branch exactly**,
-so a Git SSH URL can map to a local folder even when the actual remote does
-not exist. If no match exists, a remote handle is returned; the connector starts work
-only when `pull()` or `sync()` is called. **Without a connector**, an unmapped repository raises
-`RepositoryNotFoundException` with `MIX-VCS-3005`, not a connection error.
+Das Verzeichnis `/vcs-share` muss existieren und direkt als Root-Mount
+im App-Container bereitstehen. Im Worker ist dasselbe Volume unter
+`/data` eingebunden. Auch ein Mock-Verzeichnis muss bereits existieren.
 
-With **no** remote connector, simply use `new MixVcsManager()`,
-`new MixVcsManager(connector: 'mock')` or `connector: null` and register
-mock mappings. `file`, `mock://...` and `file://...` are also mock-only
-selectors. A mock mapping is only active after `setAllowMockDir(true)`.
+Der RabbitMQ-URL-Pfad bezeichnet den Topic-Exchange. Benutzername und
+Passwort dürfen im Connection-String stehen, wenn RabbitMQ ausschließlich
+über ein abgeschottetes privates Docker-Netzwerk erreichbar ist. Zugangsdaten
+dürfen dennoch nicht in Git eingecheckt oder protokolliert werden.
 
-For **any** real connector, including a supplied `RpcTransport`, the caller
-must **explicitly set** `sharedDirectory:` to an existing readable absolute
-directory. There is no silent default path or implicit directory creation.
-The worker's `/data` volume must be mounted there for the PHP process;
-the SDK maps the worker's workspace path into that mount.
+**Mock-Modus ist standardmäßig aus.** Nur bei explizitem
+`setAllowMockDir(true)` werden hinterlegte Mock-Verzeichnisse verwendet.
+Andernfalls nimmt der Manager ausschließlich gültig formatierte
+Git-Remote-URLs an; lokale Pfade und `file://` werden abgelehnt.
+Ohne RabbitMQ kann lokal auch `new MixVcsManager()` verwendet werden.
 
-The RabbitMQ URL supports an optional port (default 5672), user/password,
-and an exchange/topic name in its path (for example `/micx.vcs.v1`). The
-path selects the RabbitMQ **topic exchange**, not the virtual host. The
-virtual host remains `/`; the routing key is `rpc.request`. With no path,
-the default exchange is `micx.vcs.v1`. The worker must bind its request
-queue to that same exchange and routing key. Percent-encode reserved
-characters in credentials.
-Connections are lazy: looking up a registered mock does not contact RabbitMQ.
-The internal `Micx\\Vcs\\Transport\\TransportFactory` validates the URL and,
-for real checkouts, opens and verifies a RabbitMQ connection and channel.
-`Micx\\Vcs\\Transport\\RabbitMqTransport` holds broker-specific transport
-logic; further transport types can be added under `src/Transport/`.
-Applications normally do not need to construct transport objects themselves.
-Internal workspace helpers (`RpcClient`, `WorkspaceRegistry`) are located
-under `Micx\\Vcs\\Helper\\Workspace`; the root `src/` contains only
-`MixVcsManager.php`. RPC transport contracts and errors reside under
-`Micx\\Vcs\\Transport`.
+## Repository-API
 
-## Repository API
+`getRepository()` liefert nur einen Repository-Handle: kein Checkout,
+kein Pull und keine Netzwerkübertragung. `getDirectory()` liest ein
+bereits bestehendes Verzeichnis ohne RPC. Existiert noch kein Checkout,
+wird eine Exception geworfen. Ein separater Job kann dann `pull()`
+ausführen. `sync()` führt erst Pull, dann Push aus und erstellt keinen
+automatischen Commit.
 
-`getRepository($url, $branch = 'main')` **only constructs a repository handle**.
-It never triggers a network request, checkout, pull or push. This makes it
-safe for per-request use in applications. Returned objects implement
-`Micx\Vcs\Repository\VcsRepository` (with `VcsRemoteRepository` and
-`VcsMockRepository` as the concrete backends).
+Weitere Methoden: `ping($timeout = 5.0)` (Mock: sofort `true`),
+`commit()`, `push()`, `hasUnpushedChanges()`, `getHistory()`,
+`getBranches()`. Alle Backends implementieren
+`Micx\Vcs\Repository\VcsRepository`.
 
-`getDirectory()` is also network-free. For a mock it immediately returns the
-registered, existing directory. For a remote it reads the shared-volume
-workspace registry. If another process previously completed a pull, the
-checkout is available immediately, without a new RPC. Otherwise it throws
-`RepositoryNotReadyException` (`MIX-VCS-2008`); start a pull in a separate
-process. Calling `pull()` explicitly creates a missing checkout or updates
-an existing one. `sync()` runs pull followed by push, without creating
-a commit from uncommitted files.
-
-All SDK processes sharing the same volume serialize checkout, pull, commit
-and push per repository URL and branch using a shared filesystem lock.
-The lock and checkout registry live under `.mix-vcs-sdk/` in the shared volume.
-Workers or applications bypassing this SDK require their own coordination.
-
-`VcsRepository` exposes `ping(timeout: 5.0)`, `getDirectory()`, `pull()`,
-`sync()`, `commit()`,
-`push()`, `hasUnpushedChanges()`, `getHistory()` and `getBranches()`.
-Calling `ping()` does not checkout or pull. The mock backend immediately
-returns `true`; the real backend sends a worker `ping` RPC with a 5-second
-response timeout by default. A successful `pong` checks connectivity,
-not SSH readiness or access to a particular Git repository. The timeout
-can be overridden per call, for example `$repo->ping(2.0)`. Failed RPCs
-raise a typed connection/timeout exception.
-
-History and branches use `Micx\Vcs\Dto\LogEntry` and
-`Micx\Vcs\Dto\BranchInfo` respectively.
-
-The worker currently needs additional RPC support for `log`, `branches`
-and `status.hasUnpushedChanges` on real repositories. Those calls fail
-explicitly until the worker supports them. Mock implementations are available.
-The former `MixVcs` API has been removed without backward compatibility.
-
-## Errors
-
-Exceptions expose stable `MIX-VCS-xxxx` error codes and distinguish
-internal/connection faults from repository, authorization and filesystem
-problems. See [the error code catalog](docs/error-codes.md) for remedies.
-In particular, `MIX-VCS-1006` denotes a missing or invalid shared mount,
-and `MIX-VCS-3005` an unmapped mock repository without a remote connector.
-
-Run `composer install` and `composer test` to validate the checkout.
+Siehe [das einzige vollständige Beispiel](examples/mixed-repositories.php).
