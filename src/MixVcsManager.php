@@ -57,7 +57,6 @@ final class MixVcsManager
         }
 
 
-
         // Remote-Zugriff setzt ein ausdrücklich konfiguriertes, gemeinsames Mount voraus.
         if ($this->client !== null || $this->rabbitMqUrl !== null) {
             $this->assertSharedDirectory();
@@ -93,19 +92,18 @@ final class MixVcsManager
     }
 
     /**
-     * Open an existing or checkout a remote repository and return one interface.
-     * Mock registration takes priority only when mock mode is enabled.
-     * A missing remote checkout is created by the worker. Existing checkouts
-     * are refreshed with pull() by default; pass pull: false to skip the refresh.
-     * This method never pushes local commits.
+     * Liefert ein Repository-Objekt ohne Git-, Netzwerk- oder Dateizugriff.
+     * Bei aktivem Mock-Mapping wird lokal geroutet, sonst zum Remote-Backend.
+     * Erst pull() oder sync() initialisiert das Arbeitsverzeichnis. Jeder
+     * neue Repository-Handle benötigt einen eigenen erfolgreichen Pull.
      *
-     * Example: $repo = $manager->getRepository('git@github.com:org/app.git', 'main');
-     * Example without refresh: $repo = $manager->getRepository('git@github.com:org/app.git', 'main', pull: false);
+     * Beispiel: $repo = $manager->getRepository('git@github.com:org/app.git', 'main');
+     * Danach: $repo->pull(); $directory = $repo->getDirectory();
      *
-     * @throws InternalException When no connector is configured for a real repository.
+     * @throws RepositoryNotFoundException Wenn ohne Connector kein Mock existiert.
      * @see VcsRepository
      */
-    public function getRepository(string $repository, string $branch = 'main', bool $pull = true): VcsRepository
+    public function getRepository(string $repository, string $branch = 'main'): VcsRepository
     {
         if ($repository === '' || $branch === '') {
             throw new \InvalidArgumentException('Repository and branch must not be empty');
@@ -113,11 +111,7 @@ final class MixVcsManager
 
         $key = $this->key($repository, $branch);
         if ($this->allowMockDir && isset($this->mockDirectories[$key])) {
-            $mock = new MockRepository($this->mockDirectories[$key], $branch);
-            if ($pull) {
-                $mock->pull();
-            }
-            return $mock;
+            return new MockRepository($this->mockDirectories[$key], $branch);
         }
 
         if ($this->client === null && $this->rabbitMqUrl === null) {
@@ -129,34 +123,13 @@ final class MixVcsManager
             );
         }
 
-        $client = $this->getClient();
-
-        $checkout = $client->call('checkout', [
-            'url' => $repository,
-            'branch' => $branch,
-            'directory' => null,
-            'temporary' => false,
-        ]);
-
-        if (!is_string($checkout['workspace'] ?? null) || !is_string($checkout['path'] ?? null)) {
-            throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Checkout-Antwort enthält keinen Workspace oder Pfad.', 'checkout');
-        }
-
-        // The worker exposes /data, mounted at sharedDirectory by the application.
-        $workerPath = $checkout['path'];
-        if ($workerPath !== '/data' && !str_starts_with($workerPath, '/data/')) {
-            throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Worker-Pfad liegt außerhalb des erwarteten /data-Verzeichnisses.', 'checkout');
-        }
-        $relative = substr($workerPath, strlen('/data'));
-        $directory = $this->sharedDirectory === '/' ? ($relative ?: '/') : $this->sharedDirectory . $relative;
-
-        $remote = new RemoteRepository($client, $checkout['workspace'], $branch, $directory);
-        if ($pull) {
-            // Checkout creates a missing repository; pull refreshes an existing one.
-            $remote->pull();
-        }
-
-        return $remote;
+        // Auch der RabbitMQ-Transport wird erst beim ersten pull() erzeugt.
+        return new RemoteRepository(
+            fn (): RpcClient => $this->getClient(),
+            $repository,
+            $branch,
+            $this->sharedDirectory
+        );
     }
 
     /**
