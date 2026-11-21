@@ -1,6 +1,6 @@
 # MICX Sec VCS SDK
 
-Git-Repositories aus PHP verwalten, ohne der Anwendung SSH-Schlüssel zu geben. Das SDK steuert den [VCS-Service](https://github.com/micx-io/micx-sec-vcs/pull/1) über RabbitMQ: Repository öffnen, Arbeitsdateien ändern, committen und pushen.
+Git-Repositories aus PHP verwalten, ohne der Anwendung SSH-Schlüssel zu geben. Das SDK steuert den [VCS-Service](https://github.com/micx-io/micx-sec-vcs) über RabbitMQ: Repository öffnen, Arbeitsdateien ändern, committen und pushen.
 
 PHP 8.3+. Dieser Stand ist noch kein veröffentlichtes Composer-Release: PR-Branch klonen und `composer install` ausführen oder das Repository als Composer-VCS-/Path-Quelle einbinden. Paketname: `micx-io/micx-sec-vcs-sdk`.
 
@@ -16,6 +16,11 @@ use PhpAmqpLib\Connection\AMQPStreamConnection;
 $connection = new AMQPStreamConnection('rabbitmq', 5672, 'micx', 'micx');
 $vcs = new MixVcs(new RabbitMqTransport($connection));
 
+$ping = $vcs->ping();
+if (!$ping['ready']) {
+    throw new \RuntimeException($ping['errors'][0]['message']);
+}
+
 $repository = $vcs->checkout('git@github.com:example/project.git', 'main');
 $workspace = $repository['workspace'];
 $vcs->update($workspace, [
@@ -24,6 +29,22 @@ $vcs->update($workspace, [
 $vcs->commit($workspace);
 $vcs->push($workspace);
 ```
+
+Der Ping prüft zuerst den RPC-Rundlauf und die lokale SSH-Konfiguration des
+Workers, ohne ein Repository zu öffnen oder Git-Aktionen auszuführen. Für einen
+reinen Verbindungstest nach `$vcs->ping()` beenden und dessen Ergebnis auswerten:
+
+| Feld | Bedeutung |
+|---|---|
+| `pong` | `true` bestätigt die Antwort des Workers über die Message Queue. |
+| `ready` | Lokale SSH-Konfiguration vorhanden; keine Prüfung eines Remote-Zugangs. |
+| `errors` | Liste mit `code` und `message` je Konfigurationsfehler, sonst `[]`. |
+
+Ohne SSH-Key antwortet der Worker mit `pong: true`, `ready: false` und
+`SSH_KEY_MISSING` in `errors`; eine fehlende `known_hosts`-Datei meldet er als
+`KNOWN_HOSTS_MISSING`. Das ist ein erfolgreicher RPC-Test, aber keine Freigabe
+für Remote-Git-Aktionen. Diese melden weiterhin einen Fehler, solange die
+notwendige Konfiguration fehlt. Broker-/RPC-Fehler und Timeouts bleiben Exceptions.
 
 `commit($workspace)` erfasst alle Arbeitsänderungen mit der Standardnachricht `Update workspace`. Eine eigene Nachricht ist optional: `commit($workspace, 'Add hello')`. `push` veröffentlicht den Commit; `commit($workspace, 'Add hello', push: true)` kombiniert beide Schritte. Ohne Änderungen entsteht kein weiterer Commit.
 
@@ -73,7 +94,7 @@ Andere Fehler liefern `RpcException::$errorCode`, `getMessage()` und `$details`:
 | `PUSH_FAILED` | Lokaler Commit existiert möglicherweise; `details.cause` und Remote prüfen, anschließend separat pushen. |
 | `UNAVAILABLE` | Kanal vor Publish nicht verfügbar; Verbindung und Broker prüfen. |
 | `OUTCOME_UNKNOWN`, `INVALID_RESPONSE` | Ausgang nicht gesichert; Workspace/Remote prüfen. Für dauerhafte Wiederaufnahme kann `call` mit zuvor gespeicherter ID und Payload verwendet werden. |
-| `SSH_KEY_INVALID`, `SSH_AUTH_FAILED`, `SSH_HOST_KEY_FAILED` | Service-Key, Berechtigungen beziehungsweise geprüfte Hostschlüssel korrigieren. |
+| `SSH_KEY_MISSING`, `KNOWN_HOSTS_MISSING`, `SSH_KEY_INVALID`, `SSH_AUTH_FAILED`, `SSH_HOST_KEY_FAILED` | Service-Key, Berechtigungen beziehungsweise geprüfte Hostschlüssel korrigieren. |
 | `REPOSITORY_UNAVAILABLE`, `REMOTE_UNREACHABLE` | Remote-Adresse, Zugriff beziehungsweise Netzwerk prüfen. |
 | `BUSY` | Workspace-Sperre nach fünf Sekunden nicht verfügbar; später erneut versuchen. |
 | `CONFLICT` | Nur bei ausdrücklich übergebenen Zustandsvorbedingungen: Status abgleichen. |
@@ -99,4 +120,7 @@ Ein anderer Transport implementiert `RpcTransport::request(array $request, float
 
 ## Entwicklung
 
-`composer install` und `composer test`. Das [Service-Protokoll](https://github.com/micx-io/micx-sec-vcs/blob/feat/secure-vcs-rpc/docs/2026-09-12-secure-vcs-rpc.md) beschreibt Journal, Grenzen und Betriebsverhalten. SDK und Service aus den zugehörigen PRs gemeinsam aktualisieren: Die vereinfachten Methodensignaturen ersetzen die bisherigen Entwurfssignaturen.
+`composer install` und `composer test`. Das [Service-Protokoll](https://github.com/micx-io/micx-sec-vcs/blob/main/docs/2026-09-12-secure-vcs-rpc.md)
+beschreibt Journal, Grenzen und Betriebsverhalten. SDK und Service gemeinsam
+aktualisieren: `ping()` benötigt einen Service mit der entsprechenden
+RPC-Operation.

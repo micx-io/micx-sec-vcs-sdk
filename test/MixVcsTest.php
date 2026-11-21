@@ -4,6 +4,39 @@ use Micx\Vcs\{MixVcs, RpcTransport, RpcException};
 use PHPUnit\Framework\TestCase;
 final class MixVcsTest extends TestCase
 {
+    public function testPingReportsMissingKeyWithoutStartingGitWork(): void
+    {
+        $transport = new class implements RpcTransport {
+            public array $requests = [];
+
+            public function request(array $request, float $timeout): array
+            {
+                $this->requests[] = $request;
+                return [
+                    'version' => 1,
+                    'id' => $request['id'],
+                    'ok' => true,
+                    'result' => [
+                        'pong' => true,
+                        'ready' => false,
+                        'errors' => [
+                            ['code' => 'SSH_KEY_MISSING', 'message' => 'No SSH private key configured'],
+                        ],
+                    ],
+                ];
+            }
+        };
+
+        // Erreichbarkeit bleibt erfolgreich, obwohl Git noch nicht konfiguriert ist.
+        $ping = (new MixVcs($transport))->ping();
+        self::assertTrue($ping['pong']);
+        self::assertFalse($ping['ready']);
+        self::assertSame('SSH_KEY_MISSING', $ping['errors'][0]['code']);
+        self::assertSame('No SSH private key configured', $ping['errors'][0]['message']);
+        self::assertSame(['ping'], array_column($transport->requests, 'method'));
+        self::assertSame([], $transport->requests[0]['params']);
+    }
+
     public function testWorkspaceWorkflowNeedsNoRevisionOrRequestId(): void
     {
         $transport = new class implements RpcTransport {
