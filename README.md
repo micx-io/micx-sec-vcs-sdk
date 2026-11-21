@@ -25,7 +25,7 @@ and mock `push()` records the published commit in local metadata.
 
 [examples/mixed-repositories.php](examples/mixed-repositories.php) demonstrates **mixed mode**:
 a RabbitMQ URL with explicit shared directory, one SSH URL mapped to a mock
-directory, and another SSH URL checked out by the worker. The same file also
+directory, and another SSH URL whose checkout is triggered explicitly by `pull()`. The same file also
 shows the pure-mock constructor alternatives as commented lines.
 
 A short configuration overview:
@@ -46,8 +46,8 @@ $repo2 = $manager->getRepository('git@github.com:example/repo2.git', 'main');
 
 The mock lookup compares the **full repository identifier and branch exactly**,
 so a Git SSH URL can map to a local folder even when the actual remote does
-not exist. If no match exists, a configured connector checks out the real
-repository. **Without a connector**, an unmapped repository raises
+not exist. If no match exists, a remote handle is returned; the connector starts work
+only when `pull()` or `sync()` is called. **Without a connector**, an unmapped repository raises
 `RepositoryNotFoundException` with `MIX-VCS-3005`, not a connection error.
 
 With **no** remote connector, simply use `new MixVcsManager()`,
@@ -72,17 +72,28 @@ Applications normally do not need to construct transport objects themselves.
 
 ## Repository API
 
-`getRepository($url, $branch, pull: true)` ensures a checkout exists and,
-by default, also pulls changes from the remote before returning. Set
-`pull: false` when you only want the existing checkout without refreshing.
-The mock backend accepts the same flag, but its pull is a no-op. An automatic
-pull never pushes. `sync()` performs an explicit **pull followed by push**;
-it does not commit uncommitted files. Existing worker rules still apply, for
-example a dirty working tree may prevent a pull.
+`getRepository($url, $branch = 'main')` **only constructs a repository handle**.
+It never triggers a network request, checkout, pull or push. This makes it
+safe for per-request use in applications. Returned objects implement
+`Micx\Vcs\Repository\VcsRepository` (with `VcsRemoteRepository` and
+`VcsMockRepository` as the concrete backends).
 
-`getRepository()` returns `VcsRepository` with
-`getDirectory()`, `pull()`, `sync()`, `commit()`, `push()`,
-`hasUnpushedChanges()`, `getHistory()` and `getBranches()`.
+`getDirectory()` is also network-free. For a mock it immediately returns the
+registered, existing directory. For a remote it reads the shared-volume
+workspace registry. If another process previously completed a pull, the
+checkout is available immediately, without a new RPC. Otherwise it throws
+`RepositoryNotReadyException` (`MIX-VCS-2008`); start a pull in a separate
+process. Calling `pull()` explicitly creates a missing checkout or updates
+an existing one. `sync()` runs pull followed by push, without creating
+a commit from uncommitted files.
+
+All SDK processes sharing the same volume serialize checkout, pull, commit
+and push per repository URL and branch using a shared filesystem lock.
+The lock and checkout registry live under `.mix-vcs-sdk/` in the shared volume.
+Workers or applications bypassing this SDK require their own coordination.
+
+`VcsRepository` exposes `getDirectory()`, `pull()`, `sync()`, `commit()`,
+`push()`, `hasUnpushedChanges()`, `getHistory()` and `getBranches()`.
 History and branches use `Micx\Vcs\Dto\LogEntry` and
 `Micx\Vcs\Dto\BranchInfo` respectively.
 
