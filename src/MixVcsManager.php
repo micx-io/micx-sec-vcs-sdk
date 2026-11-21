@@ -3,6 +3,11 @@ declare(strict_types=1);
 
 namespace Micx\Vcs;
 
+use Micx\Vcs\Exception\ErrorCode;
+use Micx\Vcs\Exception\InternalException;
+use Micx\Vcs\Exception\RepositoryNotFoundException;
+use Micx\Vcs\Exception\AccessDeniedException;
+
 final class MixVcsManager
 {
     /** @var array<string, string> */
@@ -55,7 +60,7 @@ final class MixVcsManager
         }
         $path = realpath($directory);
         if ($path === false || !is_dir($path) || !is_readable($path) || !is_writable($path)) {
-            throw new \InvalidArgumentException("Mock directory does not exist or is inaccessible: $directory");
+            throw !file_exists($directory) ? new RepositoryNotFoundException(ErrorCode::MOCK_DIRECTORY_NOT_FOUND, "Mock-Verzeichnis nicht gefunden: $directory", 'addMockDir') : new AccessDeniedException(ErrorCode::MOCK_DIRECTORY_DENIED, "Mock-Verzeichnis nicht lesbar oder beschreibbar: $directory", 'addMockDir');
         }
         $this->mockDirectories[$this->key($repository, $branch)] = $path;
     }
@@ -81,7 +86,7 @@ final class MixVcsManager
         }
 
         if ($this->client === null) {
-            throw new \LogicException('A connector is required for a non-mock repository');
+            throw new InternalException(ErrorCode::WORKER_CONFIGURATION, 'Für echte Repositories fehlt ein RabbitMQ-Connector.', 'getRepository');
         }
 
         $checkout = $this->client->call('checkout', [
@@ -92,13 +97,13 @@ final class MixVcsManager
         ]);
 
         if (!is_string($checkout['workspace'] ?? null) || !is_string($checkout['path'] ?? null)) {
-            throw new RpcException('INVALID_RESPONSE', 'Checkout did not return workspace and path');
+            throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Checkout-Antwort enthält keinen Workspace oder Pfad.', 'checkout');
         }
 
         // The worker exposes /data, mounted at sharedDirectory by the application.
         $workerPath = $checkout['path'];
         if ($workerPath !== '/data' && !str_starts_with($workerPath, '/data/')) {
-            throw new RpcException('INVALID_RESPONSE', 'Unexpected workspace path outside /data');
+            throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Worker-Pfad liegt außerhalb des erwarteten /data-Verzeichnisses.', 'checkout');
         }
         $relative = substr($workerPath, strlen('/data'));
         $directory = $this->sharedDirectory === '/' ? ($relative ?: '/') : $this->sharedDirectory . $relative;
