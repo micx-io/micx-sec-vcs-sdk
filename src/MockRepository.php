@@ -36,6 +36,13 @@ final class MockRepository implements VcsRepository
         // A mapped local directory is already the working copy. No remote exists.
     }
 
+    /** Mirror the remote sequence in mock mode (pull is a local no-op). */
+    public function sync(): void
+    {
+        $this->pull();
+        $this->push();
+    }
+
     public function commit(string $message = 'Update workspace'): void
     {
         if (trim($message) === '') {
