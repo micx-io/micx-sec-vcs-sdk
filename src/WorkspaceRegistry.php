@@ -24,6 +24,13 @@ final class WorkspaceRegistry
     /** Look up an existing workspace without contacting RabbitMQ. */
     public function getDirectory(): ?string
     {
+        $entry = $this->read();
+        return $entry['path'] ?? null;
+    }
+
+    /** @return array{path: string, workspace: string}|null */
+    public function read(): ?array
+    {
         $file = $this->base . '/workspaces/' . $this->key . '.json';
         if (!is_file($file)) {
             return null;
@@ -40,7 +47,8 @@ final class WorkspaceRegistry
             throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Workspace-Registry beschädigt: ' . $file, 'getDirectory', [], $e);
         }
 
-        if (!is_array($entry) || !is_string($entry['path'] ?? null)) {
+        if (!is_array($entry) || !is_string($entry['path'] ?? null)
+            || !is_string($entry['workspace'] ?? null) || $entry['workspace'] === '') {
             throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Workspace-Registry enthält keinen gültigen Pfad: ' . $file, 'getDirectory');
         }
 
@@ -51,11 +59,11 @@ final class WorkspaceRegistry
             return null;
         }
 
-        return $directory;
+        return ['path' => $directory, 'workspace' => $entry['workspace']];
     }
 
     /** Persist successful checkout path for subsequent processes. */
-    public function remember(string $directory): void
+    public function remember(string $directory, string $workspace): void
     {
         $root = realpath($this->sharedDirectory);
         $path = realpath($directory);
@@ -72,7 +80,7 @@ final class WorkspaceRegistry
         }
 
         try {
-            $json = json_encode(['path' => $path], JSON_THROW_ON_ERROR);
+            $json = json_encode(['path' => $path, 'workspace' => $workspace], JSON_THROW_ON_ERROR);
             if (file_put_contents($tmp, $json, LOCK_EX) === false || !rename($tmp, $dir . '/' . $this->key . '.json')) {
                 throw new InternalException(ErrorCode::SHARED_DIRECTORY_INVALID, 'Registry-Datei konnte nicht gespeichert werden: ' . $dir, 'pull');
             }
