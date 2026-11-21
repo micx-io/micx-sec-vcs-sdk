@@ -23,6 +23,7 @@ final class MixVcsManager
      * Manages local mocks and real Git repositories through a single public API.
      * An existing RpcTransport or rabbitmq:// URL enables remote checkout.
      * null, mock, file and mock:// or file:// selectors disable remote access.
+     * With a remote connector, sharedDirectory must be explicitly set and exist.
      * The connection from a URL is opened lazily on the first real checkout.
      *
      * Example:
@@ -35,14 +36,20 @@ final class MixVcsManager
      * @see VcsRepository
      */
     public function __construct(
-        private string $sharedDirectory = '/mix/vcs',
+        private ?string $sharedDirectory = null,
         RpcTransport|string|null $connector = null,
         float $timeout = 60.0,
     ) {
-        if ($sharedDirectory === '' || $sharedDirectory[0] !== '/') {
-            throw new \InvalidArgumentException('Shared directory must be an absolute path');
+        if ($sharedDirectory !== null) {
+            if ($sharedDirectory === '' || $sharedDirectory[0] !== '/') {
+                throw new InternalException(
+                    ErrorCode::SHARED_DIRECTORY_INVALID,
+                    'Shared Directory muss ein absoluter Verzeichnispfad sein.',
+                    'configure'
+                );
+            }
+            $this->sharedDirectory = rtrim($sharedDirectory, '/') ?: '/';
         }
-        $this->sharedDirectory = rtrim($sharedDirectory, '/') ?: '/';
         if ($connector instanceof RpcTransport) {
             $this->client = new RpcClient($connector, $timeout);
         } elseif (is_string($connector) && !in_array(strtolower(trim($connector)), ['', 'mock', 'file'], true)
@@ -58,6 +65,11 @@ final class MixVcsManager
 
             // Verbindungsaufbau erst beim tatsächlichen Zugriff auf ein Remote-Repository.
             $this->rabbitMqUrl = $connector;
+        }
+
+        // Remote-Zugriff setzt ein ausdrücklich konfiguriertes, gemeinsames Mount voraus.
+        if ($this->client !== null || $this->rabbitMqUrl !== null) {
+            $this->assertSharedDirectory();
         }
 
         $this->timeout = $timeout;
@@ -107,6 +119,15 @@ final class MixVcsManager
         $key = $this->key($repository, $branch);
         if ($this->allowMockDir && isset($this->mockDirectories[$key])) {
             return new MockRepository($this->mockDirectories[$key], $branch);
+        }
+
+        if ($this->client === null && $this->rabbitMqUrl === null) {
+            throw new RepositoryNotFoundException(
+                ErrorCode::MOCK_REPOSITORY_NOT_FOUND,
+                "Kein Mock-Repository für '$repository' auf Branch '$branch' registriert.",
+                'getRepository',
+                ['repository' => $repository, 'branch' => $branch]
+            );
         }
 
         $client = $this->getClient();
@@ -186,6 +207,26 @@ final class MixVcsManager
         }
 
         return $this->client;
+    }
+
+    /**
+     * Validiert das gemeinsame Dateisystem, bevor ein Remote-Connector genutzt wird.
+     * Das Volume muss am selben Mount-Pfad für den aufrufenden Service verfügbar sein.
+     *
+     * @throws InternalException Wenn das Shared Directory fehlt oder nicht lesbar ist.
+     * @see self::getRepository()
+     */
+    private function assertSharedDirectory(): void
+    {
+        if ($this->sharedDirectory === null || !is_dir($this->sharedDirectory)
+            || !is_readable($this->sharedDirectory)) {
+            throw new InternalException(
+                ErrorCode::SHARED_DIRECTORY_INVALID,
+                'Shared Directory für Remote-VCS fehlt oder ist nicht lesbar: '
+                    . ($this->sharedDirectory ?? '(nicht angegeben)'),
+                'configure'
+            );
+        }
     }
 
     private function key(string $repository, string $branch): string
