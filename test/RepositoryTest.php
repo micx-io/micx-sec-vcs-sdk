@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use Micx\Vcs\MixVcsManager;
-use Micx\Vcs\RpcException;
+use Micx\Vcs\Exception\InternalException;
 use Micx\Vcs\RpcTransport;
 use PHPUnit\Framework\TestCase;
 
@@ -62,7 +62,7 @@ final class RepositoryTest extends TestCase
         $repo->pull();
         $repo->push();
         self::assertSame(['checkout', 'commit', 'pull', 'push'], $transport->methods);
-        $this->expectException(RpcException::class);
+        $this->expectException(InternalException::class);
         $repo->hasUnpushedChanges();
     }
 
@@ -71,7 +71,7 @@ final class RepositoryTest extends TestCase
         $directory = sys_get_temp_dir();
         $manager = new MixVcsManager();
         $manager->addMockDir('demo', 'main', $directory);
-        $this->expectException(\LogicException::class);
+        $this->expectException(InternalException::class);
         $manager->getRepository('demo', 'main');
     }
 }
