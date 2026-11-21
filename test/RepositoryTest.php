@@ -349,6 +349,44 @@ final class RepositoryTest extends TestCase
         self::assertSame(realpath(sys_get_temp_dir()), $repo->getDirectory());
     }
 
+    public function testLocalPathsAreRejectedInRemoteMode(): void
+    {
+        $transport = $this->createMock(RpcTransport::class);
+        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+
+        foreach (['/tmp/repo.git', './repo.git', '../repo.git', 'file:///tmp/repo.git', 'repo1.git'] as $url) {
+            try {
+                $manager->getRepository($url);
+                self::fail('Local path accepted as remote repository: ' . $url);
+            } catch (\\InvalidArgumentException $e) {
+                self::assertStringContainsString('Remote-Repository', $e->getMessage());
+            }
+        }
+    }
+
+    public function testRealGitRemoteUrlsAreAcceptedWithoutRpc(): void
+    {
+        $transport = new class implements RpcTransport {
+            public int $calls = 0;
+            public function request(array $request, float $timeout): array
+            {
+                ++$this->calls;
+                throw new \\LogicException('No RPC expected');
+            }
+        };
+
+        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        foreach ([
+            'git@github.com:example/repo1.git',
+            'ssh://git@github.com/example/repo1.git',
+            'https://github.com/example/repo1.git',
+            'git://github.com/example/repo1.git',
+        ] as $url) {
+            self::assertInstanceOf(VcsRemoteRepository::class, $manager->getRepository($url));
+        }
+        self::assertSame(0, $transport->calls);
+    }
+
     public function testDisabledMockCannotBeUsedWithoutConnector(): void
     {
         $directory = sys_get_temp_dir();
