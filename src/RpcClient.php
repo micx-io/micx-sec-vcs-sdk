@@ -37,7 +37,7 @@ final class RpcClient
                 $e
             );
         } catch (RpcException $e) {
-            $type = in_array($e->errorCode, ['UNAVAILABLE', 'OUTCOME_UNKNOWN'], true)
+            $type = in_array($e->errorCode, ['UNAVAILABLE', 'NO_ROUTE', 'OUTCOME_UNKNOWN'], true)
                 ? ConnectionException::class : InternalException::class;
             throw new $type(
                 ErrorCode::forWorker($e->errorCode),
