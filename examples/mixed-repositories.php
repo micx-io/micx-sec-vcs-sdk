@@ -32,6 +32,7 @@ $manager->addMockDir('git@github.com:example/repo1.git', 'main', $mockDirectory)
 // Repo 1: URL und Branch entsprechen dem Mapping -> lokales Mock-Verzeichnis.
 // Auch bei konfiguriertem RabbitMQ wird keine Verbindung aufgebaut.
 $repo1 = $manager->getRepository('git@github.com:example/repo1.git', 'main');
+var_dump($repo1->ping()); // true, sofort ohne RabbitMQ
 // Bereits existierende Mock-Verzeichnisse sind sofort verfügbar, ohne Pull.
 // getRepository() selbst erstellt nur das Objekt, auch bei Remote-Repositories.
 file_put_contents($repo1->getDirectory() . '/hello.txt', "Hello from mock\n");
@@ -46,6 +47,8 @@ foreach ($repo1->getHistory() as $entry) {
 // Ohne Connector wirft dieselbe Zeile RepositoryNotFoundException (MIX-VCS-3005).
 // Im rein lokalen Modus kann dieser Block auskommentiert werden.
 $repo2 = $manager->getRepository('git@github.com:example/repo2.git', 'main');
+var_dump($repo2->ping()); // Worker-RPC, standardmäßig 5 Sekunden Timeout
+// $repo2->ping(2.0); // Optional kürzeres Zeitlimit
 // Normaler Request: Nur lokalen Checkout-Pfad abfragen, ohne RPC.
 // Ist der Checkout nicht vorhanden, muss ein anderer Prozess pull() starten.
 try {
