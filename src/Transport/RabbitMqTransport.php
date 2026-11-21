@@ -11,7 +11,7 @@ final class RabbitMqTransport implements RpcTransport
     public const QUEUE = 'micx.vcs.v1.requests';
     public const ROUTING_KEY = 'rpc.request';
     public const MAX_BYTES = 4194304;
-    public function __construct(private AbstractConnection $connection) {}
+    public function __construct(private AbstractConnection $connection, private string $exchange = self::EXCHANGE) {}
     public function request(array $request, float $timeout): array
     {
         if (!is_finite($timeout) || $timeout <= 0 || $timeout > 300) throw new \InvalidArgumentException('Timeout must be in (0,300]');
@@ -27,7 +27,7 @@ final class RabbitMqTransport implements RpcTransport
         $deadline = microtime(true) + $timeout;
         try {
             $channel = $this->connection->channel();
-            $channel->exchange_declare(self::EXCHANGE, 'topic', false, true, false);
+            $channel->exchange_declare($this->exchange, 'topic', false, true, false);
             [$queue] = $channel->queue_declare('micx.vcs.reply.' . bin2hex(random_bytes(16)), false, false, true, true,
                 false, new AMQPTable(['x-message-ttl' => 300000, 'x-max-length-bytes' => self::MAX_BYTES]));
             $channel->set_return_listener(function () use (&$returned) { $returned = true; });
@@ -44,7 +44,7 @@ final class RabbitMqTransport implements RpcTransport
             $publishAttempted = true;
             $channel->basic_publish(new AMQPMessage($body, ['content_type' => 'application/json', 'delivery_mode' => 2,
                 'correlation_id' => $request['id'], 'reply_to' => $queue, 'expiration' => (string)(int)($timeout * 1000)]),
-                self::EXCHANGE, self::ROUTING_KEY, true);
+                $this->exchange, self::ROUTING_KEY, true);
             $channel->wait_for_pending_acks_returns(max(0.01, $deadline - microtime(true)));
             if ($returned || $nacked) throw new RpcException($returned ? 'NO_ROUTE' : 'UNAVAILABLE', 'Request was not routed or confirmed');
             while ($reply === null) {
