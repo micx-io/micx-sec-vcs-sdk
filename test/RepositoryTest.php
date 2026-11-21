@@ -8,6 +8,7 @@ use Micx\Vcs\Exception\AccessDeniedException;
 use Micx\Vcs\Exception\RepositoryNotFoundException;
 use Micx\Vcs\Exception\ErrorCode;
 use Micx\Vcs\Exception\ExceptionMapper;
+use Micx\Vcs\Exception\RepositoryNotReadyException;
 use Micx\Vcs\RpcTransport;
 use Micx\Vcs\Transport\TransportFactory;
 use PHPUnit\Framework\TestCase;
@@ -23,6 +24,13 @@ final class RepositoryTest extends TestCase
             $manager->addMockDir('demo', 'main', $directory);
             $manager->setAllowMockDir(true);
             $repo = $manager->getRepository('demo', 'main');
+            try {
+                $repo->getDirectory();
+                self::fail('Expected explicit pull before getDirectory');
+            } catch (RepositoryNotReadyException $e) {
+                self::assertSame(ErrorCode::REPOSITORY_NOT_READY, $e->errorCode);
+            }
+            $repo->pull();
 
             file_put_contents($directory . '/a.txt', 'one');
             self::assertTrue($repo->hasUnpushedChanges());
@@ -55,7 +63,7 @@ final class RepositoryTest extends TestCase
             {
                 $this->methods[] = $request['method'];
                 $result = $request['method'] === 'checkout'
-                    ? ['workspace' => 'abc', 'path' => '/data/example']
+                    ? ['workspace' => 'abc', 'path' => '/data']
                     : [];
                 return ['version' => 1, 'id' => $request['id'], 'ok' => true, 'result' => $result];
             }
@@ -64,7 +72,16 @@ final class RepositoryTest extends TestCase
         $sharedDirectory = realpath(sys_get_temp_dir());
         $manager = new MixVcsManager($sharedDirectory, $transport);
         $repo = $manager->getRepository('git@example.com:a.git', 'main');
-        self::assertSame($sharedDirectory . '/example', $repo->getDirectory());
+        self::assertSame([], $transport->methods);
+        try {
+            $repo->getDirectory();
+            self::fail('Directory was accessed before pull');
+        } catch (RepositoryNotReadyException $e) {
+            self::assertSame(ErrorCode::REPOSITORY_NOT_READY, $e->errorCode);
+        }
+        self::assertSame([], $transport->methods);
+        $repo->pull();
+        self::assertSame($sharedDirectory, $repo->getDirectory());
         $repo->commit('Commit');
         $repo->pull();
         $repo->push();
@@ -88,8 +105,15 @@ final class RepositoryTest extends TestCase
         };
 
         $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
-        $repo = $manager->getRepository('git@example.test:repo.git', pull: false);
-        self::assertSame(['checkout'], $transport->methods);
+        $repo = $manager->getRepository('git@example.test:repo.git');
+        self::assertSame([], $transport->methods);
+        try {
+            $repo->push();
+            self::fail('Push must require successful pull');
+        } catch (RepositoryNotReadyException $e) {
+            self::assertSame(ErrorCode::REPOSITORY_NOT_READY, $e->errorCode);
+        }
+        self::assertSame([], $transport->methods);
         $repo->sync();
         self::assertSame(['checkout', 'pull', 'push'], $transport->methods);
     }
@@ -103,6 +127,7 @@ final class RepositoryTest extends TestCase
             $manager->setAllowMockDir(true);
             $manager->addMockDir('repo1.git', 'main', $directory);
             $repo = $manager->getRepository('repo1.git');
+            $repo->pull();
             file_put_contents($directory . '/file.txt', 'test');
             $repo->commit('Test');
             $repo->sync();
@@ -154,6 +179,13 @@ final class RepositoryTest extends TestCase
         $manager->addMockDir($sshUrl, 'main', $directory);
 
         $repo = $manager->getRepository($sshUrl, 'main');
+        try {
+            $repo->getDirectory();
+            self::fail('Mock directory must be guarded before pull');
+        } catch (RepositoryNotReadyException $e) {
+            self::assertSame(ErrorCode::REPOSITORY_NOT_READY, $e->errorCode);
+        }
+        $repo->pull();
         self::assertSame(realpath($directory), $repo->getDirectory());
         self::assertSame('main', $repo->getBranches()[0]->name);
     }
@@ -164,7 +196,9 @@ final class RepositoryTest extends TestCase
             $manager = new MixVcsManager(connector: $connector);
             $manager->setAllowMockDir(true);
             $manager->addMockDir('repo1.git', 'main', sys_get_temp_dir());
-            self::assertSame(realpath(sys_get_temp_dir()), $manager->getRepository('repo1.git')->getDirectory());
+            $repo = $manager->getRepository('repo1.git');
+            $repo->pull();
+            self::assertSame(realpath(sys_get_temp_dir()), $repo->getDirectory());
             try {
                 $manager->getRepository('repo2.git');
             } catch (RepositoryNotFoundException $e) {
@@ -234,7 +268,9 @@ final class RepositoryTest extends TestCase
         $manager = new MixVcsManager();
         $manager->setAllowMockDir(true);
         $manager->addMockDir('repo1.git', 'main', sys_get_temp_dir());
-        self::assertSame(realpath(sys_get_temp_dir()), $manager->getRepository('repo1.git')->getDirectory());
+        $repo = $manager->getRepository('repo1.git');
+        $repo->pull();
+        self::assertSame(realpath(sys_get_temp_dir()), $repo->getDirectory());
     }
 
     public function testDisabledMockCannotBeUsedWithoutConnector(): void
