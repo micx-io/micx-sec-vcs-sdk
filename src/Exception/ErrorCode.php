@@ -32,6 +32,7 @@ final class ErrorCode
     {
         return match ($code) {
             'UNAVAILABLE' => self::CONNECTION_FAILED,
+            'NO_ROUTE' => self::BROKER_NOT_ROUTED,
             'OUTCOME_UNKNOWN' => self::RPC_OUTCOME_UNKNOWN,
             'TIMEOUT' => self::RPC_TIMEOUT,
             'SSH_KEY_MISSING', 'SSH_KEY_INVALID', 'SSH_AUTH_FAILED', 'SSH_HOST_KEY_FAILED',
