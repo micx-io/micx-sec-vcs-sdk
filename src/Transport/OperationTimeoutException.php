@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-namespace Micx\Vcs;
+namespace Micx\Vcs\Transport;
 /** The wait expired; request preserves the exact identity for a deliberate retry. */
 final class OperationTimeoutException extends RpcException
 {
