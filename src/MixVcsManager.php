@@ -95,13 +95,17 @@ final class MixVcsManager
     /**
      * Open an existing or checkout a remote repository and return one interface.
      * Mock registration takes priority only when mock mode is enabled.
+     * A missing remote checkout is created by the worker. Existing checkouts
+     * are refreshed with pull() by default; pass pull: false to skip the refresh.
+     * This method never pushes local commits.
      *
      * Example: $repo = $manager->getRepository('git@github.com:org/app.git', 'main');
+     * Example without refresh: $repo = $manager->getRepository('git@github.com:org/app.git', 'main', pull: false);
      *
      * @throws InternalException When no connector is configured for a real repository.
      * @see VcsRepository
      */
-    public function getRepository(string $repository, string $branch = 'main'): VcsRepository
+    public function getRepository(string $repository, string $branch = 'main', bool $pull = true): VcsRepository
     {
         if ($repository === '' || $branch === '') {
             throw new \InvalidArgumentException('Repository and branch must not be empty');
@@ -109,7 +113,11 @@ final class MixVcsManager
 
         $key = $this->key($repository, $branch);
         if ($this->allowMockDir && isset($this->mockDirectories[$key])) {
-            return new MockRepository($this->mockDirectories[$key], $branch);
+            $mock = new MockRepository($this->mockDirectories[$key], $branch);
+            if ($pull) {
+                $mock->pull();
+            }
+            return $mock;
         }
 
         if ($this->client === null && $this->rabbitMqUrl === null) {
@@ -142,7 +150,13 @@ final class MixVcsManager
         $relative = substr($workerPath, strlen('/data'));
         $directory = $this->sharedDirectory === '/' ? ($relative ?: '/') : $this->sharedDirectory . $relative;
 
-        return new RemoteRepository($client, $checkout['workspace'], $branch, $directory);
+        $remote = new RemoteRepository($client, $checkout['workspace'], $branch, $directory);
+        if ($pull) {
+            // Checkout creates a missing repository; pull refreshes an existing one.
+            $remote->pull();
+        }
+
+        return $remote;
     }
 
     /**
