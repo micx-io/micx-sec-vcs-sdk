@@ -3,6 +3,11 @@ declare(strict_types=1);
 
 use Micx\Vcs\MixVcsManager;
 use Micx\Vcs\Exception\InternalException;
+use Micx\Vcs\Exception\ConnectionException;
+use Micx\Vcs\Exception\AccessDeniedException;
+use Micx\Vcs\Exception\RepositoryNotFoundException;
+use Micx\Vcs\Exception\ErrorCode;
+use Micx\Vcs\Exception\ExceptionMapper;
 use Micx\Vcs\RpcTransport;
 use PHPUnit\Framework\TestCase;
 
@@ -64,6 +69,33 @@ final class RepositoryTest extends TestCase
         self::assertSame(['checkout', 'commit', 'pull', 'push'], $transport->methods);
         $this->expectException(InternalException::class);
         $repo->hasUnpushedChanges();
+    }
+
+    public function testDiagnosticErrorNumbersAndCategories(): void
+    {
+        $denied = ExceptionMapper::fromWorker('ACCESS_DENIED', 'Write permission missing', 'push');
+        self::assertInstanceOf(AccessDeniedException::class, $denied);
+        self::assertSame(ErrorCode::ACCESS_DENIED, $denied->errorCode);
+        self::assertStringContainsString('MIX-VCS-2002', $denied->getMessage());
+
+        $routing = ExceptionMapper::fromWorker('NO_ROUTE', 'Queue not bound', 'pull');
+        self::assertInstanceOf(ConnectionException::class, $routing);
+        self::assertSame(ErrorCode::BROKER_NOT_ROUTED, $routing->errorCode);
+
+        $missing = ExceptionMapper::fromWorker('REPOSITORY_NOT_FOUND', 'Missing', 'checkout');
+        self::assertInstanceOf(RepositoryNotFoundException::class, $missing);
+        self::assertSame(ErrorCode::REPOSITORY_NOT_FOUND, $missing->errorCode);
+    }
+
+    public function testMockDirectoryMissingHasDiagnosticCode(): void
+    {
+        $manager = new MixVcsManager();
+        try {
+            $manager->addMockDir('demo', 'main', '/missing-mix-vcs-' . bin2hex(random_bytes(6)));
+            self::fail('Expected missing mock directory error');
+        } catch (RepositoryNotFoundException $e) {
+            self::assertSame(ErrorCode::MOCK_DIRECTORY_NOT_FOUND, $e->errorCode);
+        }
     }
 
     public function testDisabledMockCannotBeUsedWithoutConnector(): void
