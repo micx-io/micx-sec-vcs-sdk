@@ -14,6 +14,15 @@ interface VcsRepository
     /** Synchronize from the remote; overlapping changes prefer the local version. */
     public function pull(): void;
 
+    /**
+     * Pull remote changes, then push local commits. Does not commit dirty files.
+     * Remote pull retains the worker's own-changes-win conflict strategy.
+     * Example: $repo->sync();
+     * @see self::pull()
+     * @see self::push()
+     */
+    public function sync(): void;
+
     /** Record working tree changes without publishing them. */
     public function commit(string $message = 'Update workspace'): void;
 
