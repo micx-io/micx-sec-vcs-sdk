@@ -255,7 +255,13 @@ final class RepositoryTest extends TestCase
         }
 
         self::assertTrue(TransportFactory::validate('rabbitmq://user:pass@broker:5672'));
-        self::assertTrue(TransportFactory::validate('rabbitmq://user:p%40ss@broker:5672/%2F'));
+        self::assertTrue(TransportFactory::validate('rabbitmq://user:p%40ss@broker:5672/micx.vcs.v1'));
+    }
+
+    public function testTransportFactoryRejectsInvalidTopic(): void
+    {
+        $this->expectException(InternalException::class);
+        TransportFactory::validate('rabbitmq://user:pass@broker:5672/invalid%2Ftopic');
     }
 
     public function testTransportFactoryRejectsUnsupportedUrl(): void
