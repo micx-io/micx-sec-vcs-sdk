@@ -45,7 +45,7 @@ final class RabbitMqTransport implements RpcTransport
                 'correlation_id' => $request['id'], 'reply_to' => $queue, 'expiration' => (string)(int)($timeout * 1000)]),
                 self::EXCHANGE, self::ROUTING_KEY, true);
             $channel->wait_for_pending_acks_returns(max(0.01, $deadline - microtime(true)));
-            if ($returned || $nacked) throw new RpcException('UNAVAILABLE', 'Request was not routed or confirmed');
+            if ($returned || $nacked) throw new RpcException($returned ? 'NO_ROUTE' : 'UNAVAILABLE', 'Request was not routed or confirmed');
             while ($reply === null) {
                 $remaining = $deadline - microtime(true);
                 if ($remaining <= 0) throw new OperationTimeoutException('Operation timed out; remote outcome may be unknown', $request);
