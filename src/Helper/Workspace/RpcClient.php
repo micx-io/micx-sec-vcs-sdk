@@ -29,7 +29,7 @@ final class RpcClient
     {
         $timeout ??= $this->timeout;
         if (!is_finite($timeout) || $timeout <= 0 || $timeout > 300) {
-            throw new \\InvalidArgumentException('Timeout must be in (0, 300] seconds');
+            throw new \InvalidArgumentException('Timeout must be in (0, 300] seconds');
         }
 
         $id = bin2hex(random_bytes(16));
