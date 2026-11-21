@@ -28,6 +28,24 @@ final class VcsMockRepository implements VcsRepository
     }
 
     /**
+     * Prüft den lokalen Mock-Connector ohne Netzwerkzugriff.
+     * Antwortet bei gültigem Timeout immer sofort mit true.
+     *
+     * Beispiel: $ok = $repo->ping();
+     *
+     * @throws \\InvalidArgumentException Bei ungültigem Timeout.
+     * @see self::pull()
+     */
+    public function ping(float $timeout = 5.0): bool
+    {
+        if (!is_finite($timeout) || $timeout <= 0 || $timeout > 300) {
+            throw new \\InvalidArgumentException('Timeout must be in (0, 300] seconds');
+        }
+
+        return true;
+    }
+
+    /**
      * Gibt ein existierendes Mock-Verzeichnis sofort ohne Pull zurück.
      * Anders als beim echten Git-Checkout existiert das Verzeichnis bereits.
      *
