@@ -30,6 +30,13 @@ final class RemoteRepository implements VcsRepository
         $this->client->call('pull', ['workspace' => $this->workspace]);
     }
 
+    /** Synchronize by pulling first and pushing second; dirty files are not committed. */
+    public function sync(): void
+    {
+        $this->pull();
+        $this->push();
+    }
+
     public function commit(string $message = 'Update workspace'): void
     {
         $this->client->call('commit', [
