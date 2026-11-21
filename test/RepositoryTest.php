@@ -18,6 +18,47 @@ use PHPUnit\Framework\TestCase;
 
 final class RepositoryTest extends TestCase
 {
+    public function testMockPingRespondsImmediatelyWithoutRemote(): void
+    {
+        $manager = new MixVcsManager();
+        $manager->setAllowMockDir(true);
+        $manager->addMockDir('mock-ping.git', 'main', sys_get_temp_dir());
+        $repo = $manager->getRepository('mock-ping.git');
+
+        self::assertTrue($repo->ping());
+        self::assertTrue($repo->ping(1.0));
+        $this->expectException(\InvalidArgumentException::class);
+        $repo->ping(0.0);
+    }
+
+    public function testRemotePingUsesFiveSecondTimeoutWithoutCheckout(): void
+    {
+        $transport = new class implements RpcTransport {
+            public array $requests = [];
+            public array $timeouts = [];
+
+            public function request(array $request, float $timeout): array
+            {
+                $this->requests[] = $request['method'];
+                $this->timeouts[] = $timeout;
+                return [
+                    'version' => 1,
+                    'id' => $request['id'],
+                    'ok' => true,
+                    'result' => ['pong' => true, 'ready' => false],
+                ];
+            }
+        };
+
+        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $repo = $manager->getRepository('git@example.test:ping.git');
+        self::assertSame([], $transport->requests);
+        self::assertTrue($repo->ping());
+        self::assertTrue($repo->ping(2.0));
+        self::assertSame(['ping', 'ping'], $transport->requests);
+        self::assertSame([5.0, 2.0], $transport->timeouts);
+    }
+
     public function testMockCommitPushAndHistory(): void
     {
         $directory = sys_get_temp_dir() . '/mix-vcs-test-' . bin2hex(random_bytes(6));
