@@ -25,6 +25,8 @@ final class ErrorCode
     public const MOCK_DIRECTORY_DENIED = 'MIX-VCS-3002';
     public const MOCK_JOURNAL_INVALID = 'MIX-VCS-3003';
     public const MOCK_IO_FAILED = 'MIX-VCS-3004';
+    public const MOCK_REPOSITORY_NOT_FOUND = 'MIX-VCS-3005';
+    public const SHARED_DIRECTORY_INVALID = 'MIX-VCS-1006';
     public const INVALID_RESPONSE = 'MIX-VCS-9001';
     public const UNSUPPORTED_OPERATION = 'MIX-VCS-9002';
 
