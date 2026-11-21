@@ -23,26 +23,30 @@ The worker checks out missing repositories and reuses existing workspaces.
 require __DIR__ . '/vendor/autoload.php';
 
 use Micx\Vcs\MixVcsManager;
-use Micx\Vcs\RabbitMqTransport;
-use PhpAmqpLib\Connection\AMQPStreamConnection;
-
-$connection = new AMQPStreamConnection('rabbitmq', 5672, 'micx', 'micx');
-$manager = new MixVcsManager(connector: new RabbitMqTransport($connection));
-$repo = $manager->getRepository('git@github.com:example/project.git', 'main');
+$manager = new MixVcsManager(connector: 'rabbitmq://micx:micx@rabbitmq:5672');
+$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main');
 
 file_put_contents($repo->getDirectory() . '/hello.txt', "Hello\n");
 $repo->commit('Write hello.txt');
 $repo->pull(); // Local version wins on conflicts, as defined by the worker.
 $repo->push();
 
-$connection->close();
 ```
 
 `getRepository()` returns `VcsRepository`, regardless of the backend.
 The public API is `getDirectory()`, `pull()`, `commit()`, `push()`,
 `hasUnpushedChanges()`, `getHistory()` and `getBranches()`.
 
-A connector is optional when *all* requested repositories are mapped mocks.
+The optional `connector:` accepts an existing `RpcTransport`, a
+`rabbitmq://username:password@host:port` URL, or `null` (the default).
+Credentials containing reserved URL characters must be percent-encoded.
+An optional `/vhost` selects the RabbitMQ virtual host; otherwise `/` is used.
+`mock`, `file`, `mock://...` and `file://...` also mean **no remote
+connector**. Such selectors do not implicitly create a mock mapping.
+The RabbitMQ connection is created **lazily** only for an unmapped repository.
+A manager can thus serve both local mocks and real repositories without
+connecting to the broker for a mock hit.
+
 Configure a different local mount point with `sharedDirectory:`.
 This path mapping assumes the worker exposes its storage as `/data`.
 
@@ -51,8 +55,8 @@ This path mapping assumes the worker exposes its storage as `/data`.
 ```php
 $manager = new MixVcsManager();
 $manager->setAllowMockDir(true);
-$manager->addMockDir('demo/project', 'main', '/tmp/demo-project');
-$repo = $manager->getRepository('demo/project', 'main');
+$manager->addMockDir('git@github.com:example/repo1.git', 'main', '/tmp/demo-project');
+$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main');
 
 file_put_contents($repo->getDirectory() . '/page.md', "# Hello\n");
 var_dump($repo->hasUnpushedChanges()); // true
@@ -64,7 +68,11 @@ var_dump($repo->hasUnpushedChanges()); // false
 
 The directory must exist and be writable. It can be **outside** the shared
 directory. A mock mapping is selected only when mock mode is enabled.
-Without a mapping, the manager uses the connector or fails explicitly.
+The key is the **exact repository string plus branch**: SSH URLs are allowed,
+and the mapping does not require the repository to exist remotely. Without a
+mapping, the manager uses the configured connector or fails explicitly.
+For mixed mode, initialize the same manager with a RabbitMQ URL, enable mocks,
+and register only the repositories/branches that should use local folders.
 
 Mocks store commit metadata in `.mix-vcs.json` inside the mapped directory.
 They fingerprint files to detect subsequent changes. This journal is **not Git**:
