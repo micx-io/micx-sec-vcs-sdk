@@ -6,6 +6,13 @@ directories and real Git workspaces served through the
 
 The old `MixVcs` facade is removed; **there is no backward compatibility**.
 
+**Shared-folder architecture:** All content is read and written directly by
+services through a shared volume; the SDK never uploads/downloads file
+content over RabbitMQ. Only Git control operations and their compact metadata
+(e.g. commit messages, branch names and status) travel over the broker.
+The worker owns the actual Git checkout. Every consumer must mount the *same*
+worker storage volume; `sharedDirectory` is the mount path seen by PHP.
+
 ## 1. Work with a repository
 
 The worker shares its `/data` volume with the application at `/mix/vcs`.
@@ -88,6 +95,15 @@ RPC operations or `status.hasUnpushedChanges` required by the new real
 backend. Those three methods will fail explicitly until the worker is
 extended. This SDK PR does not silently synthesize results. The old
 `MixVcs` API has been removed without a compatibility alias.
+
+## Errors and troubleshooting
+
+All SDK failures use stable `MIX-VCS-xxxx` numbers. Catch
+`Micx\Vcs\Exception\InternalException` for worker, RabbitMQ and protocol
+failures; catch `Micx\Vcs\Exception\RepositoryException` for repository,
+Git, permissions and mock-folder errors. Each exception contains `errorCode`,
+`operation` and `details`. See the [error code table](docs/error-codes.md)
+for numbered causes and remedies.
 
 ## Examples
 
