@@ -7,6 +7,7 @@ use Micx\Vcs\Exception\ErrorCode;
 use Micx\Vcs\Exception\AccessDeniedException;
 use Micx\Vcs\Exception\RepositoryNotFoundException;
 use Micx\Vcs\Exception\OperationFailedException;
+use Micx\Vcs\Exception\RepositoryNotReadyException;
 
 use Micx\Vcs\Dto\BranchInfo;
 use Micx\Vcs\Dto\LogEntry;
@@ -18,6 +19,7 @@ use Micx\Vcs\Dto\LogEntry;
 final class MockRepository implements VcsRepository
 {
     private const JOURNAL = '.mix-vcs.json';
+    private bool $ready = false;
 
     public function __construct(private string $directory, private string $branch)
     {
@@ -26,14 +28,63 @@ final class MockRepository implements VcsRepository
         }
     }
 
+    /**
+     * Liefert das lokale Arbeitsverzeichnis erst nach pull() oder sync().
+     *
+     * Beispiel: $repo->pull(); $directory = $repo->getDirectory();
+     *
+     * @throws RepositoryNotReadyException Ohne vorherigen Pull.
+     * @see self::pull()
+     */
     public function getDirectory(): string
     {
+        if (!$this->ready) {
+            throw new RepositoryNotReadyException(
+                ErrorCode::REPOSITORY_NOT_READY,
+                'Mock-Repository ist noch nicht initialisiert. Zuerst pull() ausführen.',
+                'getDirectory',
+                ['directory' => $this->directory, 'branch' => $this->branch]
+            );
+        }
+        if (!is_dir($this->directory)) {
+            throw new RepositoryNotFoundException(
+                ErrorCode::MOCK_DIRECTORY_NOT_FOUND,
+                "Mock-Verzeichnis nicht gefunden: $this->directory",
+                'getDirectory'
+            );
+        }
+
         return $this->directory;
     }
 
+    /**
+     * Aktiviert das vorhandene Mock-Verzeichnis ohne Remote-Zugriff.
+     *
+     * Beispiel: $repo->pull();
+     *
+     * @throws RepositoryNotFoundException Wenn der Pfad inzwischen fehlt.
+     * @see self::getDirectory()
+     */
     public function pull(): void
     {
-        // A mapped local directory is already the working copy. No remote exists.
+        if (!is_dir($this->directory)) {
+            $this->ready = false;
+            throw new RepositoryNotFoundException(
+                ErrorCode::MOCK_DIRECTORY_NOT_FOUND,
+                "Mock-Verzeichnis nicht gefunden: $this->directory",
+                'pull'
+            );
+        }
+        if (!is_readable($this->directory) || !is_writable($this->directory)) {
+            $this->ready = false;
+            throw new AccessDeniedException(
+                ErrorCode::MOCK_DIRECTORY_DENIED,
+                "Mock-Verzeichnis nicht lesbar oder beschreibbar: $this->directory",
+                'pull'
+            );
+        }
+
+        $this->ready = true;
     }
 
     /** Mirror the remote sequence in mock mode (pull is a local no-op). */
@@ -45,6 +96,7 @@ final class MockRepository implements VcsRepository
 
     public function commit(string $message = 'Update workspace'): void
     {
+        $this->getDirectory();
         if (trim($message) === '') {
             throw new \InvalidArgumentException('Commit message must not be empty');
         }
@@ -66,6 +118,7 @@ final class MockRepository implements VcsRepository
 
     public function push(): void
     {
+        $this->getDirectory();
         $journal = $this->readJournal();
         if ($this->fingerprint() !== ($journal['committedHash'] ?? null)) {
             throw new OperationFailedException(ErrorCode::CONFLICT, 'Vor dem Push müssen Änderungen committet werden.', 'push');
@@ -76,6 +129,7 @@ final class MockRepository implements VcsRepository
 
     public function hasUnpushedChanges(): bool
     {
+        $this->getDirectory();
         $journal = $this->readJournal();
 
         return $this->fingerprint() !== ($journal['committedHash'] ?? null)
@@ -84,6 +138,7 @@ final class MockRepository implements VcsRepository
 
     public function getHistory(): array
     {
+        $this->getDirectory();
         return array_map(
             static fn (array $entry): LogEntry => LogEntry::fromArray($entry),
             $this->readJournal()['history']
@@ -92,6 +147,7 @@ final class MockRepository implements VcsRepository
 
     public function getBranches(): array
     {
+        $this->getDirectory();
         return [new BranchInfo($this->branch, $this->getHistory()[0] ?? null, true)];
     }
 
