@@ -8,9 +8,10 @@ use Micx\Vcs\Exception\RepositoryNotReadyException;
 
 // Mischbetrieb: /mix/vcs ist das bereits vorhandene gemeinsame Volume
 // (im VCS-Worker unter /data eingebunden). Git/SSH bleiben im Worker.
+// Der URL-Pfad /micx.vcs.v1 ist der RabbitMQ-Topic-Exchange.
 $manager = new MixVcsManager(
     sharedDirectory: '/mix/vcs',
-    connector: 'rabbitmq://user:password@rabbitmq:5672'
+    connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1'
 );
 
 // Alternative für lokale Entwicklung: Nur Mock-Verzeichnisse, kein RabbitMQ
