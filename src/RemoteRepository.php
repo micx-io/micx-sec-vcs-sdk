@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Micx\Vcs;
 
+use Micx\Vcs\Exception\ErrorCode;
+use Micx\Vcs\Exception\InternalException;
+
 use Micx\Vcs\Dto\BranchInfo;
 use Micx\Vcs\Dto\LogEntry;
 
@@ -46,7 +49,7 @@ final class RemoteRepository implements VcsRepository
         // Requires an extended status response from the worker.
         $status = $this->client->call('status', ['workspace' => $this->workspace]);
         if (!is_bool($status['hasUnpushedChanges'] ?? null)) {
-            throw new RpcException('UNSUPPORTED', 'Worker status needs hasUnpushedChanges support');
+            throw new InternalException(ErrorCode::UNSUPPORTED_OPERATION, 'Worker liefert hasUnpushedChanges noch nicht; Worker aktualisieren.', 'status');
         }
 
         return $status['hasUnpushedChanges'];
@@ -56,7 +59,7 @@ final class RemoteRepository implements VcsRepository
     {
         $result = $this->client->call('log', ['workspace' => $this->workspace]);
         if (!is_array($result['entries'] ?? null)) {
-            throw new RpcException('INVALID_RESPONSE', 'Worker log requires entries');
+            throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Worker liefert keine gültige Log-Liste.', 'log');
         }
 
         return array_map(
@@ -69,7 +72,7 @@ final class RemoteRepository implements VcsRepository
     {
         $result = $this->client->call('branches', ['workspace' => $this->workspace]);
         if (!is_array($result['branches'] ?? null)) {
-            throw new RpcException('INVALID_RESPONSE', 'Worker branches requires branches');
+            throw new InternalException(ErrorCode::INVALID_RESPONSE, 'Worker liefert keine gültige Branch-Liste.', 'branches');
         }
 
         return array_map(
