@@ -135,7 +135,7 @@ final class MixVcsManager
         $isHttpUrl = preg_match('~^https://[^/\\s@]+(?:/[^\\s]+)+$~iD', $repository) === 1;
         $isGitUrl = preg_match('~^git://[^/\\s]+(?:/[^\\s]+)+$~iD', $repository) === 1;
         if (!$isSshUrl && !$isScpUrl && !$isHttpUrl && !$isGitUrl) {
-            throw new \\InvalidArgumentException(
+            throw new \InvalidArgumentException(
                 'Remote-Repository muss eine Git-SSH-, HTTPS- oder git://-URL sein; lokale Pfade sind nicht erlaubt.'
             );
         }
