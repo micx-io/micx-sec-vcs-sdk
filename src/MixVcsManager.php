@@ -7,13 +7,17 @@ use Micx\Vcs\Exception\ErrorCode;
 use Micx\Vcs\Exception\InternalException;
 use Micx\Vcs\Exception\RepositoryNotFoundException;
 use Micx\Vcs\Exception\AccessDeniedException;
+use Micx\Vcs\Exception\ConnectionException;
+use PhpAmqpLib\Connection\AMQPStreamConnection;
 
 final class MixVcsManager
 {
     /** @var array<string, string> */
     private array $mockDirectories = [];
     private bool $allowMockDir = false;
-    private ?RpcClient $client;
+    private ?RpcClient $client = null;
+    private ?string $rabbitMqUrl = null;
+    private float $timeout;
 
     /**
      * Manage repositories by URL/name and branch. The optional transport is only
@@ -29,14 +33,29 @@ final class MixVcsManager
      */
     public function __construct(
         private string $sharedDirectory = '/mix/vcs',
-        ?RpcTransport $connector = null,
+        RpcTransport|string|null $connector = null,
         float $timeout = 60.0,
     ) {
         if ($sharedDirectory === '' || $sharedDirectory[0] !== '/') {
             throw new \InvalidArgumentException('Shared directory must be an absolute path');
         }
         $this->sharedDirectory = rtrim($sharedDirectory, '/') ?: '/';
-        $this->client = $connector === null ? null : new RpcClient($connector, $timeout);
+        if ($connector instanceof RpcTransport) {
+            $this->client = new RpcClient($connector, $timeout);
+        } elseif (is_string($connector) && !in_array(strtolower(trim($connector)), ['', 'mock', 'file', 'file://'], true)) {
+            if (parse_url($connector, PHP_URL_SCHEME) !== 'rabbitmq') {
+                throw new InternalException(
+                    ErrorCode::WORKER_CONFIGURATION,
+                    'Nur rabbitmq://-URLs oder null, mock, file sind als Connector-Konfiguration erlaubt.',
+                    'configure'
+                );
+            }
+
+            // Verbindungsaufbau erst beim tatsächlichen Zugriff auf ein Remote-Repository.
+            $this->rabbitMqUrl = $connector;
+        }
+
+        $this->timeout = $timeout;
     }
 
     /** Enable or disable local directory mappings. @see self::addMockDir() */
@@ -85,11 +104,9 @@ final class MixVcsManager
             return new MockRepository($this->mockDirectories[$key], $branch);
         }
 
-        if ($this->client === null) {
-            throw new InternalException(ErrorCode::WORKER_CONFIGURATION, 'Für echte Repositories fehlt ein RabbitMQ-Connector.', 'getRepository');
-        }
+        $client = $this->getClient();
 
-        $checkout = $this->client->call('checkout', [
+        $checkout = $client->call('checkout', [
             'url' => $repository,
             'branch' => $branch,
             'directory' => null,
@@ -108,7 +125,62 @@ final class MixVcsManager
         $relative = substr($workerPath, strlen('/data'));
         $directory = $this->sharedDirectory === '/' ? ($relative ?: '/') : $this->sharedDirectory . $relative;
 
-        return new RemoteRepository($this->client, $checkout['workspace'], $branch, $directory);
+        return new RemoteRepository($client, $checkout['workspace'], $branch, $directory);
+    }
+
+    /**
+     * Start a RabbitMQ connection lazily, only if a repository is not mocked.
+     * A URL may include percent-encoded user/password and an optional vhost.
+     *
+     * @throws ConnectionException When the broker cannot be reached.
+     * @throws InternalException When no remote connector is configured.
+     * @see self::getRepository()
+     */
+    private function getClient(): RpcClient
+    {
+        if ($this->client !== null) {
+            return $this->client;
+        }
+
+        if ($this->rabbitMqUrl === null) {
+            throw new InternalException(
+                ErrorCode::WORKER_CONFIGURATION,
+                'Für ein echtes Repository ist eine rabbitmq://-URL oder ein RpcTransport erforderlich.',
+                'getRepository'
+            );
+        }
+
+        $parts = parse_url($this->rabbitMqUrl);
+        if ($parts === false || ($parts['scheme'] ?? null) !== 'rabbitmq'
+            || !is_string($parts['host'] ?? null) || $parts['host'] === ''
+            || isset($parts['query']) || isset($parts['fragment'])) {
+            throw new InternalException(
+                ErrorCode::WORKER_CONFIGURATION,
+                'RabbitMQ-URL ungültig. Erwartet: rabbitmq://user:pass@host:5672[/vhost].',
+                'configure'
+            );
+        }
+
+        $port = $parts['port'] ?? 5672;
+        $username = rawurldecode($parts['user'] ?? 'guest');
+        $password = rawurldecode($parts['pass'] ?? 'guest');
+        $path = $parts['path'] ?? '';
+        $vhost = $path === '' || $path === '/' ? '/' : rawurldecode(ltrim($path, '/'));
+
+        try {
+            $connection = new AMQPStreamConnection($parts['host'], $port, $username, $password, $vhost);
+            $this->client = new RpcClient(new RabbitMqTransport($connection), $this->timeout);
+        } catch (\Throwable $e) {
+            throw new ConnectionException(
+                ErrorCode::CONNECTION_FAILED,
+                'RabbitMQ-Verbindung fehlgeschlagen. Host, Port, Anmeldedaten und Broker prüfen.',
+                'connect',
+                [],
+                $e
+            );
+        }
+
+        return $this->client;
     }
 
     private function key(string $repository, string $branch): string
