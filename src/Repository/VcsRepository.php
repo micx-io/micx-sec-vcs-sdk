@@ -8,6 +8,18 @@ use Micx\Vcs\Dto\LogEntry;
 
 interface VcsRepository
 {
+    /**
+     * Prüft die Erreichbarkeit des Backends ohne Repository-Checkout.
+     * Mock-Repositories antworten sofort mit true.
+     *
+     * Beispiel: $online = $repo->ping(5.0);
+     *
+     * @param float $timeout Maximale RPC-Wartezeit in Sekunden, Standard 5.
+     * @return bool true bei erfolgreicher Ping-Antwort
+     * @see self::pull()
+     */
+    public function ping(float $timeout = 5.0): bool;
+
     /** Absolute application-visible directory holding this repository's files. */
     public function getDirectory(): string;
 
