@@ -8,6 +8,9 @@ use Micx\Vcs\Exception\InternalException;
 use Micx\Vcs\Exception\RepositoryNotFoundException;
 use Micx\Vcs\Exception\AccessDeniedException;
 use Micx\Vcs\Transport\TransportFactory;
+use Micx\Vcs\Repository\VcsRepository;
+use Micx\Vcs\Repository\VcsMockRepository;
+use Micx\Vcs\Repository\VcsRemoteRepository;
 
 final class MixVcsManager
 {
@@ -111,7 +114,7 @@ final class MixVcsManager
 
         $key = $this->key($repository, $branch);
         if ($this->allowMockDir && isset($this->mockDirectories[$key])) {
-            return new MockRepository($this->mockDirectories[$key], $branch);
+            return new VcsMockRepository($this->mockDirectories[$key], $branch);
         }
 
         if ($this->client === null && $this->rabbitMqUrl === null) {
@@ -124,7 +127,7 @@ final class MixVcsManager
         }
 
         // Auch der RabbitMQ-Transport wird erst beim ersten pull() erzeugt.
-        return new RemoteRepository(
+        return new VcsRemoteRepository(
             fn (): RpcClient => $this->getClient(),
             $repository,
             $branch,
