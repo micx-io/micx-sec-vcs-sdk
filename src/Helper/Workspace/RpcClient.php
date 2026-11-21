@@ -25,13 +25,18 @@ final class RpcClient
     /** @param array<string,mixed> $params
      *  @return array<string,mixed>
      */
-    public function call(string $method, array $params = []): array
+    public function call(string $method, array $params = [], ?float $timeout = null): array
     {
+        $timeout ??= $this->timeout;
+        if (!is_finite($timeout) || $timeout <= 0 || $timeout > 300) {
+            throw new \\InvalidArgumentException('Timeout must be in (0, 300] seconds');
+        }
+
         $id = bin2hex(random_bytes(16));
         $request = ['version' => 1, 'id' => $id, 'method' => $method, 'params' => $params];
 
         try {
-            $reply = $this->transport->request($request, $this->timeout);
+            $reply = $this->transport->request($request, $timeout);
         } catch (OperationTimeoutException $e) {
             throw new ConnectionException(
                 ErrorCode::RPC_TIMEOUT,
