@@ -41,5 +41,7 @@ echo $directory, PHP_EOL;
 // Ein separater Initialisierungslauf kann den Checkout zuerst bereitstellen.
 $repo2->pull();
 file_put_contents($directory . '/hello.txt', "Hello from shared volume\n");
+// Commit-Identität gilt ab jetzt nur für dieses Repository-Handle.
+$repo2->setCommitUser('Jane Doe', 'jane@example.com');
 $repo2->commit('Update shared content');
 $repo2->sync(); // Pull + Push; ohne automatischen Commit.
