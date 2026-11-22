@@ -296,12 +296,36 @@ final class RepositoryTest extends TestCase
     public function testMockDirectoryMissingHasDiagnosticCode(): void
     {
         $manager = new MixVcsManager();
+        $directory = sys_get_temp_dir() . '/missing-mix-vcs-' . bin2hex(random_bytes(6));
+        $manager->setAllowMockDir(true);
+        $manager->addMockDir('demo', 'main', $directory);
+        $repository = $manager->getRepository('demo', 'main');
+        self::assertTrue($repository->ping());
         try {
-            $manager->addMockDir('demo', 'main', '/missing-mix-vcs-' . bin2hex(random_bytes(6)));
+            $repository->getDirectory();
             self::fail('Expected missing mock directory error');
         } catch (RepositoryNotFoundException $e) {
             self::assertSame(ErrorCode::MOCK_DIRECTORY_NOT_FOUND, $e->errorCode);
         }
+    }
+
+    public function testMockDirectoryIsValidatedOnPull(): void
+    {
+        $manager = new MixVcsManager();
+        $manager->setAllowMockDir(true);
+        $manager->addMockDir('demo', 'main', sys_get_temp_dir() . '/missing-mix-vcs-' . bin2hex(random_bytes(6)));
+        $repository = $manager->getRepository('demo', 'main');
+        $this->expectException(RepositoryNotFoundException::class);
+        $repository->pull();
+    }
+
+    public function testUnusedInvalidMockDoesNotBlockOtherRepositories(): void
+    {
+        $manager = new MixVcsManager();
+        $manager->setAllowMockDir(true);
+        $manager->addMockDir('unused', 'main', '/missing-mix-vcs-' . bin2hex(random_bytes(6)));
+        $manager->addMockDir('demo', 'main', sys_get_temp_dir());
+        self::assertSame(realpath(sys_get_temp_dir()), $manager->getRepository('demo', 'main')->getDirectory());
     }
 
     public function testRabbitMqUrlDoesNotConnectWhenMockMatches(): void

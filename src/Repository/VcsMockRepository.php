@@ -24,9 +24,6 @@ final class VcsMockRepository implements VcsRepository
 
     public function __construct(private string $directory, private string $branch)
     {
-        if (!is_dir($directory) || !is_readable($directory) || !is_writable($directory)) {
-            throw !file_exists($directory) ? new RepositoryNotFoundException(ErrorCode::MOCK_DIRECTORY_NOT_FOUND, "Mock-Verzeichnis nicht gefunden: $directory", 'open') : new AccessDeniedException(ErrorCode::MOCK_DIRECTORY_DENIED, "Mock-Verzeichnis nicht zugreifbar: $directory", 'open');
-        }
     }
 
     /**
@@ -66,7 +63,15 @@ final class VcsMockRepository implements VcsRepository
             );
         }
 
-        return $this->directory;
+        if (!is_readable($this->directory) || !is_writable($this->directory)) {
+            throw new AccessDeniedException(
+                ErrorCode::MOCK_DIRECTORY_DENIED,
+                "Mock-Verzeichnis nicht lesbar oder beschreibbar: $this->directory",
+                'getDirectory'
+            );
+        }
+
+        return realpath($this->directory) ?: $this->directory;
     }
 
     /**
@@ -87,7 +92,6 @@ final class VcsMockRepository implements VcsRepository
             );
         }
         if (!is_readable($this->directory) || !is_writable($this->directory)) {
-            $this->ready = false;
             throw new AccessDeniedException(
                 ErrorCode::MOCK_DIRECTORY_DENIED,
                 "Mock-Verzeichnis nicht lesbar oder beschreibbar: $this->directory",

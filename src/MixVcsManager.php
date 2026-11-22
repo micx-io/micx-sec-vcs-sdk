@@ -95,11 +95,8 @@ final class MixVcsManager
         if ($repository === '' || $branch === '') {
             throw new \InvalidArgumentException('Repository and branch must not be empty');
         }
-        $path = realpath($directory);
-        if ($path === false || !is_dir($path) || !is_readable($path) || !is_writable($path)) {
-            throw !file_exists($directory) ? new RepositoryNotFoundException(ErrorCode::MOCK_DIRECTORY_NOT_FOUND, "Mock-Verzeichnis nicht gefunden: $directory", 'addMockDir') : new AccessDeniedException(ErrorCode::MOCK_DIRECTORY_DENIED, "Mock-Verzeichnis nicht lesbar oder beschreibbar: $directory", 'addMockDir');
-        }
-        $this->mockDirectories[$this->key($repository, $branch)] = $path;
+        // Registration must not access mappings that may never be used.
+        $this->mockDirectories[$this->key($repository, $branch)] = $directory;
     }
 
     /**
