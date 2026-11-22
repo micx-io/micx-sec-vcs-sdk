@@ -30,8 +30,12 @@ $manager->addMockDir(
 // Mappings bleiben in beiden Umgebungen im Code; nur im Dev-Modus nutzen.
 $manager->setAllowMockDir(DEVELOPMENT_MODE);
 
-$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main', 'sites/repo1');
-$directory = $repo->getDirectory();
+// Repo 1 verwendet im Development-Modus das registrierte Mock-Verzeichnis.
+$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main');
+
+// Ohne Mock-Mapping bestimmt der dritte Parameter das Remote-Zielverzeichnis.
+$remote = $manager->getRepository('git@github.com:example/repo2.git', 'main', 'sites/repo2');
+$directory = $remote->getDirectory(); // /vcs-share/sites/repo2, auch vor dem Pull
 ```
 
 Das Verzeichnis `/vcs-share` muss existieren und direkt als Root-Mount
