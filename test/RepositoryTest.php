@@ -145,6 +145,67 @@ final class RepositoryTest extends TestCase
         }
     }
 
+    public function testCommitUserTravelsOnlyWithCommitRpc(): void
+    {
+        $transport = new class implements RpcTransport {
+            public array $requests = [];
+
+            public function request(array $request, float $timeout): array
+            {
+                $this->requests[] = $request;
+                return [
+                    'version' => 1,
+                    'id' => $request['id'],
+                    'ok' => true,
+                    'result' => ['revision' => ''],
+                ];
+            }
+        };
+
+        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $repo = $manager->getRepository('git@example.test:author.git', 'main', 'author/main');
+        $repo->setCommitUser('Jane Doe', 'jane@example.com');
+        self::assertSame([], $transport->requests);
+
+        $repo->pull();
+        $repo->commit('Authored update');
+        $repo->push();
+
+        self::assertArrayNotHasKey('authorName', $transport->requests[0]['params']);
+        self::assertSame('Jane Doe', $transport->requests[1]['params']['authorName']);
+        self::assertSame('jane@example.com', $transport->requests[1]['params']['authorEmail']);
+        self::assertSame('Authored update', $transport->requests[1]['params']['message']);
+        self::assertArrayNotHasKey('authorName', $transport->requests[2]['params']);
+
+        $other = $manager->getRepository('git@example.test:author.git', 'main', 'author/main');
+        $other->commit('Default author');
+        self::assertArrayNotHasKey('authorName', $transport->requests[3]['params']);
+    }
+
+    public function testCommitUserRejectsInvalidIdentityForRemoteAndMock(): void
+    {
+        $transport = $this->createMock(RpcTransport::class);
+        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $remote = $manager->getRepository('git@example.test:author.git', 'main');
+        try {
+            $remote->setCommitUser("Name\nInjected", 'jane@example.com');
+            self::fail('Expected invalid author name');
+        } catch (\InvalidArgumentException) {
+            self::assertTrue(true);
+        }
+
+        $manager = new MixVcsManager();
+        $manager->addMockDir('mock-author', 'main', sys_get_temp_dir());
+        $manager->setAllowMockDir(true);
+        $mock = $manager->getRepository('mock-author', 'main');
+        try {
+            $mock->setCommitUser('Jane Doe', 'not-an-email');
+            self::fail('Expected invalid author email');
+        } catch (\InvalidArgumentException) {
+            self::assertTrue(true);
+        }
+    }
+
     public function testLazyCheckoutAndSyncOrdering(): void
     {
         $transport = new class implements RpcTransport {
