@@ -99,37 +99,50 @@ final class RepositoryTest extends TestCase
     public function testRealRepositoryDelegatesToWorker(): void
     {
         $transport = new class implements RpcTransport {
-            public array $methods = [];
+            public array $requests = [];
+
             public function request(array $request, float $timeout): array
             {
-                $this->methods[] = $request['method'];
-                $result = $request['method'] === 'checkout'
-                    ? ['workspace' => 'abc', 'path' => '/data']
-                    : [];
-                return ['version' => 1, 'id' => $request['id'], 'ok' => true, 'result' => $result];
+                $this->requests[] = $request;
+                return [
+                    'version' => 1,
+                    'id' => $request['id'],
+                    'ok' => true,
+                    'result' => match ($request['method']) {
+                        'status' => ['hasUnpushedChanges' => false],
+                        'log' => ['entries' => []],
+                        'branches' => ['branches' => []],
+                        default => ['revision' => ''],
+                    },
+                ];
             }
         };
 
         $sharedDirectory = realpath(sys_get_temp_dir());
         $manager = new MixVcsManager($sharedDirectory, $transport);
-        $repo = $manager->getRepository('git@example.com:a-' . bin2hex(random_bytes(8)) . '.git', 'main');
+        $repo = $manager->getRepository('git@example.com:example/site.git', 'main', 'sites/a');
         self::assertInstanceOf(VcsRemoteRepository::class, $repo);
-        self::assertSame([], $transport->methods);
-        try {
-            $repo->getDirectory();
-            self::fail('Directory was accessed before pull');
-        } catch (RepositoryNotReadyException $e) {
-            self::assertSame(ErrorCode::REPOSITORY_NOT_READY, $e->errorCode);
-        }
-        self::assertSame([], $transport->methods);
+        self::assertSame($sharedDirectory . '/sites/a', $repo->getDirectory());
+        self::assertSame([], $transport->requests);
+
         $repo->pull();
-        self::assertSame($sharedDirectory, $repo->getDirectory());
         $repo->commit('Commit');
-        $repo->pull();
-        $repo->push();
-        self::assertSame(['checkout', 'pull', 'commit', 'checkout', 'pull', 'push'], $transport->methods);
-        $this->expectException(InternalException::class);
-        $repo->hasUnpushedChanges();
+        $repo->sync();
+        self::assertFalse($repo->hasUnpushedChanges());
+        self::assertSame([], $repo->getHistory());
+        self::assertSame([], $repo->getBranches());
+
+        self::assertSame(
+            ['pull', 'commit', 'pull', 'push', 'status', 'log', 'branches'],
+            array_column($transport->requests, 'method')
+        );
+        foreach ($transport->requests as $request) {
+            self::assertSame([
+                'url' => 'git@example.com:example/site.git',
+                'branch' => 'main',
+                'directory' => 'sites/a',
+            ], array_intersect_key($request['params'], array_flip(['url', 'branch', 'directory'])));
+        }
     }
 
     public function testLazyCheckoutAndSyncOrdering(): void
@@ -139,58 +152,39 @@ final class RepositoryTest extends TestCase
             public function request(array $request, float $timeout): array
             {
                 $this->methods[] = $request['method'];
-                $result = $request['method'] === 'checkout'
-                    ? ['workspace' => 'abc', 'path' => '/data']
-                    : [];
-                return ['version' => 1, 'id' => $request['id'], 'ok' => true, 'result' => $result];
+                return ['version' => 1, 'id' => $request['id'], 'ok' => true, 'result' => []];
             }
         };
 
         $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
-        $repo = $manager->getRepository('git@example.test:repo-' . bin2hex(random_bytes(8)) . '.git');
-        self::assertSame([], $transport->methods);
-        try {
-            $repo->push();
-            self::fail('Push must require successful pull');
-        } catch (RepositoryNotReadyException $e) {
-            self::assertSame(ErrorCode::REPOSITORY_NOT_READY, $e->errorCode);
-        }
+        $repo = $manager->getRepository('git@example.test:example/repo.git', 'main');
+        self::assertSame(realpath(sys_get_temp_dir()) . '/repo/main', $repo->getDirectory());
         self::assertSame([], $transport->methods);
         $repo->sync();
-        self::assertSame(['checkout', 'pull', 'push'], $transport->methods);
+        self::assertSame(['pull', 'push'], $transport->methods);
     }
 
     public function testSecondHandleReadsExistingCheckoutWithoutRpc(): void
     {
-        $transport = new class implements RpcTransport {
-            public array $methods = [];
-
-            public function request(array $request, float $timeout): array
-            {
-                $this->methods[] = $request['method'];
-                return [
-                    'version' => 1,
-                    'id' => $request['id'],
-                    'ok' => true,
-                    'result' => $request['method'] === 'checkout'
-                        ? ['workspace' => 'persisted', 'path' => '/data']
-                        : [],
-                ];
-            }
-        };
-
+        $transport = $this->createMock(RpcTransport::class);
+        $transport->expects(self::never())->method('request');
         $shared = realpath(sys_get_temp_dir());
-        $repoUrl = 'git@example.test:distinct-' . bin2hex(random_bytes(8)) . '.git';
-        $first = new MixVcsManager($shared, $transport);
-        $firstRepo = $first->getRepository($repoUrl);
-        self::assertSame([], $transport->methods);
-        $firstRepo->pull();
-        self::assertSame($shared, $firstRepo->getDirectory());
+        $url = 'git@example.test:example/site.git';
 
-        $second = new MixVcsManager($shared, $transport);
-        $secondRepo = $second->getRepository($repoUrl);
-        self::assertSame($shared, $secondRepo->getDirectory());
-        self::assertSame(['checkout', 'pull'], $transport->methods);
+        $first = new MixVcsManager($shared, $transport, storageTemplate: 'projects/{repo}/{branch}');
+        $second = new MixVcsManager($shared, $transport, storageTemplate: 'projects/{repo}/{branch}');
+        self::assertSame(
+            $shared . '/projects/site/main',
+            $first->getRepository($url, 'main')->getDirectory()
+        );
+        self::assertSame(
+            $first->getRepository($url, 'main')->getDirectory(),
+            $second->getRepository($url, 'main')->getDirectory()
+        );
+        self::assertSame(
+            $shared . '/custom/checkout',
+            $first->getRepository($url, 'main', 'custom/checkout')->getDirectory()
+        );
     }
 
     public function testMockSyncUsesLocalJournalWithoutAdditionalCommit(): void
@@ -351,26 +345,20 @@ final class RepositoryTest extends TestCase
         self::assertSame(realpath(sys_get_temp_dir()), $manager->getRepository('demo')->getDirectory());
     }
 
-    public function testDeferredValidationRejectsMissingDirectoryOnRemoteAccess(): void
+    public function testDeferredValidationDoesNotTouchFilesystemOnGetRepository(): void
     {
-        foreach ([null, sys_get_temp_dir() . '/mix-vcs-missing-' . bin2hex(random_bytes(6))] as $directory) {
-            $transport = $this->createMock(RpcTransport::class);
-            $transport->expects(self::never())->method('request');
-            foreach ([$transport, 'rabbitmq://user:pass@unreachable.invalid:5672'] as $connector) {
-                $manager = new MixVcsManager(
-                    sharedDirectory: $directory,
-                    connector: $connector,
-                    deferSharedDirectoryValidation: true,
-                );
-                try {
-                    $manager->getRepository('git@example.test:repo.git');
-                    self::fail('Remote access must validate the shared directory');
-                } catch (InternalException $e) {
-                    self::assertSame(ErrorCode::SHARED_DIRECTORY_INVALID, $e->errorCode);
-                    self::assertStringContainsString($directory ?? '(nicht angegeben)', $e->getMessage());
-                }
-            }
-        }
+        $directory = sys_get_temp_dir() . '/mix-vcs-missing-' . bin2hex(random_bytes(6));
+        $transport = $this->createMock(RpcTransport::class);
+        $transport->expects(self::never())->method('request');
+        $manager = new MixVcsManager(
+            sharedDirectory: $directory,
+            connector: $transport,
+            deferSharedDirectoryValidation: true,
+        );
+
+        $repository = $manager->getRepository('git@example.test:example/site.git', 'main');
+        self::assertSame($directory . '/site/main', $repository->getDirectory());
+        self::assertDirectoryDoesNotExist($directory);
     }
 
     public function testDeferredValidationAcceptsExistingDirectoryWithoutRpc(): void

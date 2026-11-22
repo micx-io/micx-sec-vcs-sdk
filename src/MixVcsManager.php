@@ -45,7 +45,11 @@ final class MixVcsManager
         RpcTransport|string|null $connector = null,
         float $timeout = 60.0,
         bool $deferSharedDirectoryValidation = false,
+        private string $storageTemplate = '{repo}/{branch}',
     ) {
+        if ($this->storageTemplate === '' || !str_contains($this->storageTemplate, '{repo}') || !str_contains($this->storageTemplate, '{branch}')) {
+            throw new \InvalidArgumentException('Storage template must contain {repo} and {branch}.');
+        }
         if ($sharedDirectory !== null) {
             if ($sharedDirectory === '' || $sharedDirectory[0] !== '/') {
                 throw new InternalException(
@@ -103,6 +107,8 @@ final class MixVcsManager
      * Für Remote-Repositories wird das gemeinsame Verzeichnis geprüft.
      * Bei aktivem Mock-Mapping wird lokal geroutet, sonst zum Remote-Backend.
      * Ein vorhandenes Verzeichnis ist ohne Pull direkt verfügbar.
+     * Der optionale relative Verzeichnispfad wird vom Client festgelegt.
+     * Ohne Angabe gilt das Storage-Template des Managers (Standard: {repo}/{branch}).
      * Fehlt der Checkout, kann ein anderer Prozess pull() ausführen.
      *
      * Beispiel: $repo = $manager->getRepository('git@github.com:org/app.git', 'main');
@@ -111,7 +117,7 @@ final class MixVcsManager
      * @throws RepositoryNotFoundException Wenn ohne Connector kein Mock existiert.
      * @see VcsRepository
      */
-    public function getRepository(string $repository, string $branch = 'main'): VcsRepository
+    public function getRepository(string $repository, string $branch = 'main', ?string $directory = null): VcsRepository
     {
         if ($repository === '' || $branch === '') {
             throw new \InvalidArgumentException('Repository and branch must not be empty');
@@ -143,14 +149,14 @@ final class MixVcsManager
             );
         }
 
-        $this->assertSharedDirectory();
-
+        // Handle und Verzeichnis werden rein clientseitig bestimmt; kein I/O.
         // Auch der RabbitMQ-Transport wird erst beim ersten pull() erzeugt.
         return new VcsRemoteRepository(
             fn (): RpcClient => $this->getClient(),
             $repository,
             $branch,
-            $this->sharedDirectory
+            $this->sharedDirectory,
+            $directory ?? $this->resolveDirectory($repository, $branch)
         );
     }
 
@@ -202,6 +208,23 @@ final class MixVcsManager
                 'configure'
             );
         }
+    }
+
+    /**
+     * Resolves the repository checkout path locally, without file or network access.
+     * Example: with {repo}/{branch}, org/site.git on main becomes site/main.
+     *
+     * @see self::getRepository()
+     */
+    private function resolveDirectory(string $repository, string $branch): string
+    {
+        $name = preg_replace('~\.git$~i', '', basename(str_replace(':', '/', $repository)));
+        $name = preg_replace('/[^A-Za-z0-9._-]/', '-', $name);
+        if ($name === '' || $name === '.' || $name === '..') {
+            throw new \InvalidArgumentException('Cannot derive repository name from URL.');
+        }
+
+        return strtr($this->storageTemplate, ['{repo}' => $name, '{branch}' => $branch]);
     }
 
     private function key(string $repository, string $branch): string
