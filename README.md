@@ -69,8 +69,14 @@ Workspace-Registry, kein Server-Template und keinen vorbereitenden Ping.
 `sync()` führt Pull und Push aus, ohne automatisch zu committen.
 
 Weitere Methoden: `ping($timeout = 5.0)` (Mock: sofort `true`),
-`commit()`, `push()`, `hasUnpushedChanges()`, `getHistory()`,
-`getBranches()`. Alle Backends implementieren
+`setCommitUser($name, $email)`, `commit()`, `push()`,
+`hasUnpushedChanges()`, `getHistory()`, `getBranches()`. Alle Backends implementieren
 `Micx\Vcs\Repository\VcsRepository`.
+
+`setCommitUser()` setzt die Git-Identität für spätere `commit()`-Aufrufe
+am aktuellen Repository-Handle. Dabei erfolgt kein RPC. Erst `commit()`
+überträgt `authorName` und `authorEmail` mit der Commit-Nachricht.
+Beide Werte gelten sowohl für den Git-Author als auch den Committer;
+ohne explizite Einstellung verwendet der Worker `MICX <micx@localhost>`.
 
 Siehe [das einzige vollständige Beispiel](examples/mixed-repositories.php).

@@ -75,7 +75,11 @@ final class RepositoryTest extends TestCase
 
             file_put_contents($directory . '/a.txt', 'one');
             self::assertTrue($repo->hasUnpushedChanges());
+            $repo->setCommitUser('Jane Doe', 'jane@example.com');
             $repo->commit('First');
+            $journal = json_decode(file_get_contents($directory . '/.mix-vcs.json'), true, flags: JSON_THROW_ON_ERROR);
+            self::assertSame('Jane Doe', $journal['history'][0]['authorName']);
+            self::assertSame('jane@example.com', $journal['history'][0]['authorEmail']);
             self::assertTrue($repo->hasUnpushedChanges());
             $repo->push();
             self::assertFalse($repo->hasUnpushedChanges());
@@ -142,6 +146,67 @@ final class RepositoryTest extends TestCase
                 'branch' => 'main',
                 'directory' => 'sites/a',
             ], array_intersect_key($request['params'], array_flip(['url', 'branch', 'directory'])));
+        }
+    }
+
+    public function testCommitUserTravelsOnlyWithCommitRpc(): void
+    {
+        $transport = new class implements RpcTransport {
+            public array $requests = [];
+
+            public function request(array $request, float $timeout): array
+            {
+                $this->requests[] = $request;
+                return [
+                    'version' => 1,
+                    'id' => $request['id'],
+                    'ok' => true,
+                    'result' => ['revision' => ''],
+                ];
+            }
+        };
+
+        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $repo = $manager->getRepository('git@example.test:author.git', 'main', 'author/main');
+        $repo->setCommitUser('Jane Doe', 'jane@example.com');
+        self::assertSame([], $transport->requests);
+
+        $repo->pull();
+        $repo->commit('Authored update');
+        $repo->push();
+
+        self::assertArrayNotHasKey('authorName', $transport->requests[0]['params']);
+        self::assertSame('Jane Doe', $transport->requests[1]['params']['authorName']);
+        self::assertSame('jane@example.com', $transport->requests[1]['params']['authorEmail']);
+        self::assertSame('Authored update', $transport->requests[1]['params']['message']);
+        self::assertArrayNotHasKey('authorName', $transport->requests[2]['params']);
+
+        $other = $manager->getRepository('git@example.test:author.git', 'main', 'author/main');
+        $other->commit('Default author');
+        self::assertArrayNotHasKey('authorName', $transport->requests[3]['params']);
+    }
+
+    public function testCommitUserRejectsInvalidIdentityForRemoteAndMock(): void
+    {
+        $transport = $this->createMock(RpcTransport::class);
+        $manager = new MixVcsManager(realpath(sys_get_temp_dir()), $transport);
+        $remote = $manager->getRepository('git@example.test:author.git', 'main');
+        try {
+            $remote->setCommitUser("Name\nInjected", 'jane@example.com');
+            self::fail('Expected invalid author name');
+        } catch (\InvalidArgumentException) {
+            self::assertTrue(true);
+        }
+
+        $manager = new MixVcsManager();
+        $manager->addMockDir('mock-author', 'main', sys_get_temp_dir());
+        $manager->setAllowMockDir(true);
+        $mock = $manager->getRepository('mock-author', 'main');
+        try {
+            $mock->setCommitUser('Jane Doe', 'not-an-email');
+            self::fail('Expected invalid author email');
+        } catch (\InvalidArgumentException) {
+            self::assertTrue(true);
         }
     }
 

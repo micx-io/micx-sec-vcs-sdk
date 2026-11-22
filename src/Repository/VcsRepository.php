@@ -35,6 +35,20 @@ interface VcsRepository
      */
     public function sync(): void;
 
+    /**
+     * Sets the author and committer identity for subsequent commits on this handle.
+     * The change is local to the SDK handle; it does not trigger a worker RPC.
+     *
+     * Example: $repo->setCommitUser('Jane Doe', 'jane@example.com');
+     *
+     * @param string $name Non-empty Git commit name.
+     * @param string $email Non-empty Git commit email address.
+     * @return void
+     * @throws \InvalidArgumentException If the identity is invalid.
+     * @see self::commit()
+     */
+    public function setCommitUser(string $name, string $email): void;
+
     /** Record working tree changes without publishing them. */
     public function commit(string $message = 'Update workspace'): void;
 

@@ -19,6 +19,8 @@ use Micx\Vcs\Dto\LogEntry;
 final class VcsMockRepository implements VcsRepository
 {
     private const JOURNAL = '.mix-vcs.json';
+    private ?string $commitName = null;
+    private ?string $commitEmail = null;
 
     public function __construct(private string $directory, private string $branch)
     {
@@ -102,6 +104,29 @@ final class VcsMockRepository implements VcsRepository
         $this->push();
     }
 
+    /**
+     * Sets the identity of subsequent mock commits, without network access.
+     * Mock commits store identity alongside their journal entries.
+     *
+     * Example: $repo->setCommitUser('Jane Doe', 'jane@example.com');
+     *
+     * @param string $name Commit author and committer name.
+     * @param string $email Commit author and committer email.
+     * @return void
+     * @throws \InvalidArgumentException For invalid author information.
+     * @see self::commit()
+     */
+    public function setCommitUser(string $name, string $email): void
+    {
+        if (trim($name) === '' || strlen($name) > 256 || preg_match('/[\x00-\x1f\x7f]/', $name)
+            || strlen($email) > 254 || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            throw new \InvalidArgumentException('Invalid Git commit author name or email.');
+        }
+
+        $this->commitName = $name;
+        $this->commitEmail = $email;
+    }
+
     public function commit(string $message = 'Update workspace'): void
     {
         $this->getDirectory();
@@ -119,6 +144,8 @@ final class VcsMockRepository implements VcsRepository
         array_unshift($journal['history'], [
             'id' => $entry->id, 'message' => $entry->message,
             'timestamp' => $entry->timestamp, 'branch' => $entry->branch,
+            'authorName' => $this->commitName ?? 'MICX',
+            'authorEmail' => $this->commitEmail ?? 'micx@localhost',
         ]);
         $journal['committedHash'] = $current;
         $this->writeJournal($journal);

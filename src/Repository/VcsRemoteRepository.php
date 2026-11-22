@@ -17,6 +17,9 @@ use Micx\Vcs\Helper\Workspace\RpcClient;
 final class VcsRemoteRepository implements VcsRepository
 {
     private ?RpcClient $client = null;
+    private ?string $commitName = null;
+    private ?string $commitEmail = null;
+
     private readonly string $relativeDirectory;
 
     /** @param \Closure(): RpcClient $clientFactory */
@@ -79,10 +82,39 @@ final class VcsRemoteRepository implements VcsRepository
         $this->push();
     }
 
+    /**
+     * Sets the identity used for future commit() calls on this repository handle.
+     * No RPC is sent until commit() is invoked, and other handles are unaffected.
+     *
+     * Example: $repo->setCommitUser('Jane Doe', 'jane@example.com');
+     *
+     * @param string $name Git author and committer name.
+     * @param string $email Git author and committer email address.
+     * @return void
+     * @throws \InvalidArgumentException For invalid names or email addresses.
+     * @see self::commit()
+     */
+    public function setCommitUser(string $name, string $email): void
+    {
+        if (trim($name) === '' || strlen($name) > 256 || preg_match('/[\x00-\x1f\x7f]/', $name)
+            || strlen($email) > 254 || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            throw new \InvalidArgumentException('Invalid Git commit author name or email.');
+        }
+
+        $this->commitName = $name;
+        $this->commitEmail = $email;
+    }
+
     /** Records local changes without a push. @see self::push() */
     public function commit(string $message = 'Update workspace'): void
     {
-        $this->client()->call('commit', $this->params() + ['message' => $message]);
+        $params = $this->params() + ['message' => $message];
+        if ($this->commitName !== null) {
+            $params['authorName'] = $this->commitName;
+            $params['authorEmail'] = $this->commitEmail;
+        }
+
+        $this->client()->call('commit', $params);
     }
 
     /** Publishes local commits. @see self::commit() */
