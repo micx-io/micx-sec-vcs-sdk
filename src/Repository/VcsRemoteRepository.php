@@ -8,7 +8,6 @@ use Micx\Vcs\Dto\BranchInfo;
 use Micx\Vcs\Dto\LogEntry;
 use Micx\Vcs\Exception\ErrorCode;
 use Micx\Vcs\Exception\InternalException;
-use Micx\Vcs\Exception\RepositoryNotReadyException;
 use Micx\Vcs\Helper\Workspace\RpcClient;
 
 /**
