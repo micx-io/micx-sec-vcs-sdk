@@ -75,7 +75,11 @@ final class RepositoryTest extends TestCase
 
             file_put_contents($directory . '/a.txt', 'one');
             self::assertTrue($repo->hasUnpushedChanges());
+            $repo->setCommitUser('Jane Doe', 'jane@example.com');
             $repo->commit('First');
+            $journal = json_decode(file_get_contents($directory . '/.mix-vcs.json'), true, flags: JSON_THROW_ON_ERROR);
+            self::assertSame('Jane Doe', $journal['history'][0]['authorName']);
+            self::assertSame('jane@example.com', $journal['history'][0]['authorEmail']);
             self::assertTrue($repo->hasUnpushedChanges());
             $repo->push();
             self::assertFalse($repo->hasUnpushedChanges());
