@@ -55,32 +55,16 @@ final class VcsRemoteRepository implements VcsRepository
     }
 
     /**
-     * Returns the locally known checkout directory without contacting RabbitMQ.
+     * Returns the deterministic absolute path without filesystem or RPC access.
+     * The directory may not exist yet; pull() creates its checkout.
      *
-     * Example: $path = $repo->getDirectory();
-     * @return string Absolute application-visible workspace directory.
-     * @throws RepositoryNotReadyException Before the first successful pull.
+     * Example: $directory = $repo->getDirectory();
+     * @return string Absolute path beneath sharedDirectory.
      * @see self::pull()
      */
     public function getDirectory(): string
     {
-        $directory = rtrim($this->sharedDirectory, '/') . '/' . $this->relativeDirectory;
-        if (!is_dir($directory) || !is_file($directory . '/.git/HEAD')) {
-            throw new RepositoryNotReadyException(
-                ErrorCode::REPOSITORY_NOT_READY,
-                'Repository noch nicht ausgecheckt. Zuerst pull() ausführen.',
-                'getDirectory',
-                ['repository' => $this->repository, 'branch' => $this->branch]
-            );
-        }
-
-        $root = realpath($this->sharedDirectory);
-        $path = realpath($directory);
-        if ($root === false || $path === false || !str_starts_with($path, rtrim($root, '/') . '/')) {
-            throw new InternalException(ErrorCode::SHARED_DIRECTORY_INVALID, 'Checkout liegt außerhalb des Shared Directory.', 'getDirectory');
-        }
-
-        return $path;
+        return rtrim($this->sharedDirectory, '/') . '/' . $this->relativeDirectory;
     }
 
     /** Pulls and initializes the checkout when needed. @see self::getDirectory() */
