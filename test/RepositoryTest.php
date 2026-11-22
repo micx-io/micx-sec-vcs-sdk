@@ -100,6 +100,39 @@ final class RepositoryTest extends TestCase
         }
     }
 
+    public function testMockJournalPermissionsIgnoreRestrictiveUmask(): void
+    {
+        $directory = sys_get_temp_dir() . '/mix-vcs-permissions-' . bin2hex(random_bytes(6));
+        mkdir($directory);
+        $previousUmask = umask(0077);
+
+        try {
+            $manager = new MixVcsManager();
+            $manager->setAllowMockDir(true);
+            $manager->addMockDir('permissions', 'main', $directory);
+            $repo = $manager->getRepository('permissions');
+
+            file_put_contents($directory . '/content.txt', 'one');
+            $repo->commit('First');
+            $journal = $directory . '/.mix-vcs.json';
+            clearstatcache(true, $journal);
+            self::assertSame(0666, fileperms($journal) & 0777);
+
+            $repo->push();
+            clearstatcache(true, $journal);
+            self::assertSame(0666, fileperms($journal) & 0777);
+            self::assertFalse($repo->hasUnpushedChanges());
+        } finally {
+            umask($previousUmask);
+            foreach (glob($directory . '/{*,.*}', GLOB_BRACE) ?: [] as $file) {
+                if (is_file($file)) {
+                    unlink($file);
+                }
+            }
+            rmdir($directory);
+        }
+    }
+
     public function testRealRepositoryDelegatesToWorker(): void
     {
         $transport = new class implements RpcTransport {
