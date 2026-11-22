@@ -103,6 +103,8 @@ final class MixVcsManager
      * Für Remote-Repositories wird das gemeinsame Verzeichnis geprüft.
      * Bei aktivem Mock-Mapping wird lokal geroutet, sonst zum Remote-Backend.
      * Ein vorhandenes Verzeichnis ist ohne Pull direkt verfügbar.
+     * Der optionale relative Verzeichnispfad wird vom Client festgelegt.
+     * Ohne Angabe wird ein stabiler Pfad aus Repository-URL und Branch gewählt.
      * Fehlt der Checkout, kann ein anderer Prozess pull() ausführen.
      *
      * Beispiel: $repo = $manager->getRepository('git@github.com:org/app.git', 'main');
@@ -111,7 +113,7 @@ final class MixVcsManager
      * @throws RepositoryNotFoundException Wenn ohne Connector kein Mock existiert.
      * @see VcsRepository
      */
-    public function getRepository(string $repository, string $branch = 'main'): VcsRepository
+    public function getRepository(string $repository, string $branch = 'main', ?string $directory = null): VcsRepository
     {
         if ($repository === '' || $branch === '') {
             throw new \InvalidArgumentException('Repository and branch must not be empty');
@@ -150,7 +152,8 @@ final class MixVcsManager
             fn (): RpcClient => $this->getClient(),
             $repository,
             $branch,
-            $this->sharedDirectory
+            $this->sharedDirectory,
+            $directory
         );
     }
 
