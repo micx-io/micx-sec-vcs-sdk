@@ -149,8 +149,7 @@ final class MixVcsManager
             );
         }
 
-        $this->assertSharedDirectory();
-
+        // Handle und Verzeichnis werden rein clientseitig bestimmt; kein I/O.
         // Auch der RabbitMQ-Transport wird erst beim ersten pull() erzeugt.
         return new VcsRemoteRepository(
             fn (): RpcClient => $this->getClient(),
