@@ -219,10 +219,10 @@ final class MixVcsManager
      */
     private function resolveDirectory(string $repository, string $branch): string
     {
-        $name = preg_replace('~\\.git$~i', '', basename(str_replace(':', '/', $repository)));
+        $name = preg_replace('~\.git$~i', '', basename(str_replace(':', '/', $repository)));
         $name = preg_replace('/[^A-Za-z0-9._-]/', '-', $name);
         if ($name === '' || $name === '.' || $name === '..') {
-            throw new \\InvalidArgumentException('Cannot derive repository name from URL.');
+            throw new \InvalidArgumentException('Cannot derive repository name from URL.');
         }
 
         return strtr($this->storageTemplate, ['{repo}' => $name, '{branch}' => $branch]);
