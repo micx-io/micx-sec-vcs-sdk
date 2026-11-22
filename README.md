@@ -19,7 +19,7 @@ const DEVELOPMENT_MODE = true; // In Produktion false setzen.
 
 $manager = new MixVcsManager(
     sharedDirectory: '/vcs-share',
-    connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1'
+    connector: 'rabbitmq://user:password@rabbitmq:5672/micx.vcs.v1',
 );
 $manager->addMockDir(
     'git@github.com:example/repo1.git',
@@ -30,7 +30,7 @@ $manager->addMockDir(
 // Mappings bleiben in beiden Umgebungen im Code; nur im Dev-Modus nutzen.
 $manager->setAllowMockDir(DEVELOPMENT_MODE);
 
-$repo = $manager->getRepository('git@github.com:example/repo1.git');
+$repo = $manager->getRepository('git@github.com:example/repo1.git', 'main', 'sites/repo1');
 $directory = $repo->getDirectory();
 ```
 
@@ -52,12 +52,17 @@ Ohne RabbitMQ kann lokal auch `new MixVcsManager()` verwendet werden.
 
 ## Repository-API
 
-`getRepository()` liefert nur einen Repository-Handle: kein Checkout,
-kein Pull und keine Netzwerkübertragung. `getDirectory()` liest ein
-bereits bestehendes Verzeichnis ohne RPC. Existiert noch kein Checkout,
-wird eine Exception geworfen. Ein separater Job kann dann `pull()`
-ausführen. `sync()` führt erst Pull, dann Push aus und erstellt keinen
-automatischen Commit.
+`getRepository($url, $branch, $directory)` gibt sofort einen passiven Handle
+zurück; `$directory` ist ein relativer Pfad unter `sharedDirectory` und kann
+weggelassen werden. Standardmäßig bestimmt das Manager-Template
+`{repo}/{branch}` den Pfad; es lässt sich über
+`storageTemplate: 'sites/{repo}/{branch}'` ändern. `{repo}` ist der
+Repository-Basename ohne `.git`. `getDirectory()` liefert immer den
+absoluten Pfad, auch vor dem ersten Checkout, ohne RPC oder Dateisystemzugriff.
+Erst `pull()` legt das Repository an bzw. aktualisiert es. Bei jedem RPC
+sendet das SDK URL, Branch und das relative Zielverzeichnis. Es gibt keine
+Workspace-Registry, kein Server-Template und keinen vorbereitenden Ping.
+`sync()` führt Pull und Push aus, ohne automatisch zu committen.
 
 Weitere Methoden: `ping($timeout = 5.0)` (Mock: sofort `true`),
 `commit()`, `push()`, `hasUnpushedChanges()`, `getHistory()`,
