@@ -345,26 +345,20 @@ final class RepositoryTest extends TestCase
         self::assertSame(realpath(sys_get_temp_dir()), $manager->getRepository('demo')->getDirectory());
     }
 
-    public function testDeferredValidationRejectsMissingDirectoryOnRemoteAccess(): void
+    public function testDeferredValidationDoesNotTouchFilesystemOnGetRepository(): void
     {
-        foreach ([null, sys_get_temp_dir() . '/mix-vcs-missing-' . bin2hex(random_bytes(6))] as $directory) {
-            $transport = $this->createMock(RpcTransport::class);
-            $transport->expects(self::never())->method('request');
-            foreach ([$transport, 'rabbitmq://user:pass@unreachable.invalid:5672'] as $connector) {
-                $manager = new MixVcsManager(
-                    sharedDirectory: $directory,
-                    connector: $connector,
-                    deferSharedDirectoryValidation: true,
-                );
-                try {
-                    $manager->getRepository('git@example.test:repo.git');
-                    self::fail('Remote access must validate the shared directory');
-                } catch (InternalException $e) {
-                    self::assertSame(ErrorCode::SHARED_DIRECTORY_INVALID, $e->errorCode);
-                    self::assertStringContainsString($directory ?? '(nicht angegeben)', $e->getMessage());
-                }
-            }
-        }
+        $directory = sys_get_temp_dir() . '/mix-vcs-missing-' . bin2hex(random_bytes(6));
+        $transport = $this->createMock(RpcTransport::class);
+        $transport->expects(self::never())->method('request');
+        $manager = new MixVcsManager(
+            sharedDirectory: $directory,
+            connector: $transport,
+            deferSharedDirectoryValidation: true,
+        );
+
+        $repository = $manager->getRepository('git@example.test:example/site.git', 'main');
+        self::assertSame($directory . '/site/main', $repository->getDirectory());
+        self::assertDirectoryDoesNotExist($directory);
     }
 
     public function testDeferredValidationAcceptsExistingDirectoryWithoutRpc(): void
