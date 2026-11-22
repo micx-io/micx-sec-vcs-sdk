@@ -223,8 +223,11 @@ final class VcsMockRepository implements VcsRepository
 
         try {
             $json = json_encode($journal, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-            if (file_put_contents($temporary, $json . "\n", LOCK_EX) === false || !rename($temporary, $file)) {
-                throw new OperationFailedException(ErrorCode::MOCK_IO_FAILED, "Mock-Journal konnte nicht geschrieben werden: $file", 'commit');
+            if (file_put_contents($temporary, $json . "\n", LOCK_EX) === false
+                || !chmod($temporary, 0666)
+                || !rename($temporary, $file)
+                || !chmod($file, 0666)) {
+                throw new OperationFailedException(ErrorCode::MOCK_IO_FAILED, "Mock-Journal konnte nicht mit gemeinsamen Schreibrechten gespeichert werden: $file", 'commit');
             }
         } finally {
             if (file_exists($temporary)) {
